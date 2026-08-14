@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loreforge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Loreforge</span>
+    <label class="char-select">
+      Personagem:
+      <select id="character-select"></select>
+    </label>
+    <button id="test-toggle" class="settings-toggle" type="button" title="Testar conexões">⚡</button>
+    <button id="settings-toggle" class="settings-toggle" type="button" title="Configurar A Mente">⚙</button>
+  </header>
+
+  <div id="settings" class="settings" hidden>
+    <section class="panel settings-panel">
+      <h2>Conexões</h2>
+      <button id="test-conns" type="button">Testar conexões</button>
+      <ul class="conn-status">
+        <li><span class="dot" id="dot-server"></span> Server do mundo <span class="status-reason" id="status-server">—</span></li>
+        <li><span class="dot" id="dot-mente"></span> O conector (A Mente) <span class="status-reason" id="status-mente">—</span></li>
+      </ul>
+    </section>
+
+    <section class="panel settings-panel settings-server">
+      <h2>Server do mundo</h2>
+      <div class="settings-group">
+        <label>Endereço do server do mundo
+          <input id="server-base" type="text" placeholder="(vazio = mesma origem)">
+        </label>
+        <span class="settings-note" style="flex-basis:auto">Deixe vazio se abriu pelo próprio server. Preencha (ex.: http://192.168.0.10:8777) para um client standalone.</span>
+      </div>
+    </section>
+
+    <section class="panel settings-panel settings-mente">
+      <h2>O conector — A Mente</h2>
+      <div class="settings-group">
+        <label>Endereço do conector
+          <input id="conector-base" type="text" placeholder="http://127.0.0.1:8899">
+        </label>
+        <span class="settings-note" style="flex-basis:auto">A Mente do seu personagem roda no <em>conector</em>, um programa que você baixa e executa na sua própria máquina — com o seu modelo e a sua chave. Esta tela não fala com modelo nenhum e não guarda credencial alguma: ela mostra a cena e leva o seu sussurro até lá.</span>
+      </div>
+      <span class="settings-note">Você traz o seu modelo — não há fallback. A escolha do modelo muda a riqueza da narrativa, nunca o resultado mecânico (isso é do Árbitro, no server).</span>
+    </section>
+
+    <div class="settings-actions">
+      <button id="settings-save" type="button">Salvar</button>
+      <span class="settings-note" style="flex-basis:auto">🔒 A sua chave de modelo não vive mais aqui: ela fica no conector, na sua máquina. Esta tela guarda só dois endereços.</span>
+    </div>
+  </div>
+
+  <div id="runtime-banner" class="runtime-banner" hidden>
+    <span id="runtime-msg"></span>
+    <button id="runtime-config" type="button">Configurar A Mente</button>
+  </div>
+
+  <main class="layout">
+    <section class="play">
+      <div id="scene" class="scene" aria-live="polite"></div>
+      <div id="log" class="log" aria-live="polite"></div>
+      <p id="down-banner" class="down-banner" role="status" hidden></p>
+      <form id="act-form" class="act">
+        <input id="act-input" class="act-input" type="text" autocomplete="off"
+               placeholder="O que você faz? (linguagem natural)">
+        <button type="submit">Agir</button>
+      </form>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel panel-self">
+        <h2>Você</h2>
+        <div id="self-card" class="self-card"></div>
+      </section>
+
+      <section class="panel panel-inventory">
+        <h2>Pertences</h2>
+        <ul id="tree" class="tree"></ul>
+      </section>
+
+      <section class="panel panel-memories">
+        <h2>Memórias</h2>
+        <ul id="memories" class="mem-list"></ul>
+      </section>
+
+      <div id="detail" class="panel detail">
+        <p class="detail-empty">Selecione algo à esquerda para ver os detalhes.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

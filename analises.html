@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<!-- MOBILE PRIMEIRO: a análise é lida no celular, longe da máquina que joga.
+     Daí o viewport travado, o alvo de toque grande no seletor, e TABELA QUE ROLA
+     SOZINHA em vez de espremer coluna (relatório tem tabela de 5 colunas). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Loreforge — análises de rodada</title>
+<style>
+  :root {
+    --fundo: #14100e; --papel: #1d1815; --linha: #33291f;
+    --tinta: #e8ded0; --fraca: #a2907c; --brasa: #c9803a; --ruim: #c25a4a;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--fundo); color: var(--tinta);
+    font: 16px/1.6 ui-serif, Georgia, serif;
+    padding: 0 0 4rem; overflow-wrap: break-word;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--papel);
+    border-bottom: 1px solid var(--linha);
+    padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0));
+  }
+  h1 { font-size: 1rem; margin: 0 0 .6rem; color: var(--brasa);
+       letter-spacing: .04em; text-transform: uppercase; font-weight: 600; }
+  select {
+    width: 100%; padding: .7rem .8rem; font: inherit; font-size: 1rem;
+    background: var(--fundo); color: var(--tinta);
+    border: 1px solid var(--linha); border-radius: 8px;
+  }
+  #meta { margin-top: .5rem; font-size: .8rem; color: var(--fraca); }
+  main { padding: 1rem; max-width: 46rem; margin: 0 auto; }
+  h2 { font-size: 1.05rem; color: var(--brasa); margin: 2rem 0 .4rem;
+       border-bottom: 1px solid var(--linha); padding-bottom: .3rem; }
+  h1.doc { font-size: 1.3rem; color: var(--tinta); text-transform: none;
+           letter-spacing: 0; margin: 0 0 .8rem; }
+  /* a tabela rola no próprio quadro: o corpo NUNCA rola de lado */
+  .rolagem { overflow-x: auto; -webkit-overflow-scrolling: touch;
+             margin: .6rem 0; border: 1px solid var(--linha); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem;
+          font-family: ui-monospace, monospace; }
+  th, td { padding: .45rem .6rem; text-align: left; white-space: nowrap;
+           border-bottom: 1px solid var(--linha); }
+  th { color: var(--fraca); font-weight: 600; background: #221b17; }
+  tr:last-child td { border-bottom: 0; }
+  code { font-family: ui-monospace, monospace; font-size: .85em;
+         background: #241d18; padding: .1em .35em; border-radius: 4px; }
+  blockquote { margin: .8rem 0; padding: .6rem .9rem; border-left: 3px solid var(--brasa);
+               background: #221b17; color: var(--fraca); font-size: .9rem; }
+  ul { padding-left: 1.2rem; } li { margin: .25rem 0; }
+  em { color: var(--fraca); }
+  details { margin: .6rem 0; } summary { cursor: pointer; color: var(--fraca); }
+  .aviso { color: var(--ruim); }
+  #vazio { color: var(--fraca); text-align: center; padding: 3rem 1rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Análises de rodada</h1>
+  <select id="sel" aria-label="Escolher análise"></select>
+  <div id="meta"></div>
+</header>
+<main id="doc"><div id="vazio">carregando…</div></main>
+
+<script>
+"use strict";
+
+// Renderizador de markdown MÍNIMO e local. Só o subconjunto que o relatório usa
+// (título, tabela, lista, citação, details, negrito, itálico, código) — porque a
+// página é servida pelo próprio mundo e depender de CDN a quebraria justamente
+// no celular com rede ruim, que é onde ela precisa funcionar.
+function esc(s) {
+  return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*]+)\*/g, "$1<em>$2</em>");
+}
+function render(md) {
+  const out = [];
+  const linhas = md.split("\n");
+  let i = 0;
+  while (i < linhas.length) {
+    const l = linhas[i];
+    if (/^\|/.test(l) && /^\|[\s:-]+\|/.test(linhas[i + 1] || "")) {
+      const cab = l.split("|").slice(1, -1).map((c) => c.trim());
+      i += 2;
+      const corpo = [];
+      while (i < linhas.length && /^\|/.test(linhas[i])) {
+        corpo.push(linhas[i].split("|").slice(1, -1).map((c) => c.trim()));
+        i++;
+      }
+      out.push('<div class="rolagem"><table><thead><tr>'
+        + cab.map((c) => `<th>${inline(c)}</th>`).join("")
+        + "</tr></thead><tbody>"
+        + corpo.map((r) => "<tr>" + r.map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>").join("")
+        + "</tbody></table></div>");
+      continue;
+    }
+    if (/^#\s/.test(l)) { out.push(`<h1 class="doc">${inline(l.slice(2))}</h1>`); i++; continue; }
+    if (/^##\s/.test(l)) { out.push(`<h2>${inline(l.slice(3))}</h2>`); i++; continue; }
+    if (/^>\s?/.test(l)) {
+      const buf = [];
+      while (i < linhas.length && /^>\s?/.test(linhas[i])) { buf.push(linhas[i].replace(/^>\s?/, "")); i++; }
+      out.push(`<blockquote>${inline(buf.join(" "))}</blockquote>`);
+      continue;
+    }
+    if (/^\s*-\s/.test(l)) {
+      const buf = [];
+      while (i < linhas.length && /^\s*-\s/.test(linhas[i])) {
+        const nivel = /^\s\s+-/.test(linhas[i]) ? " style='margin-left:1rem'" : "";
+        buf.push(`<li${nivel}>${inline(linhas[i].replace(/^\s*-\s/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ul>${buf.join("")}</ul>`);
+      continue;
+    }
+    if (/^<details|^<\/details|^<summary/.test(l)) { out.push(l); i++; continue; }
+    if (l.trim() === "") { i++; continue; }
+    out.push(`<p>${inline(l)}</p>`);
+    i++;
+  }
+  return out.join("\n");
+}
+
+const sel = document.getElementById("sel");
+const doc = document.getElementById("doc");
+const meta = document.getElementById("meta");
+
+async function abrir(nome) {
+  doc.innerHTML = '<div id="vazio">abrindo…</div>';
+  location.hash = encodeURIComponent(nome);
+  try {
+    const r = await fetch("/api/analise?nome=" + encodeURIComponent(nome));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    doc.innerHTML = render(d.markdown);
+    const m = (d.dados && d.dados.macro) || {};
+    const s = (d.dados && d.dados.sinais) || [];
+    meta.innerHTML = `${m.propostas ?? "?"} propostas · `
+      + (s.length ? `<span class="aviso">${s.length} sinal(is)</span>` : "sem sinais")
+      + (d.dados && d.dados.gerado_em ? ` · gerado ${esc(d.dados.gerado_em)}` : "");
+  } catch (e) {
+    doc.innerHTML = `<div id="vazio" class="aviso">falhou: ${esc(String(e.message))}</div>`;
+  }
+}
+
+(async () => {
+  try {
+    const r = await fetch("/api/analises");
+    const lista = await r.json();
+    if (!Array.isArray(lista) || !lista.length) {
+      doc.innerHTML = '<div id="vazio">Nenhuma análise ainda.<br><br>'
+        + '<code>python3 server/analisa_rodada.py --personagem &lt;id&gt; --desde AAAA-MM-DD</code></div>';
+      return;
+    }
+    sel.innerHTML = lista.map((x) => {
+      const f = x.filtro || {};
+      const rot = `${x.personagem || x.nome} · ${f.desde || "?"} → ${f.ate || "agora"}`
+        + ` · v${f.versao || "todas"}`;
+      return `<option value="${esc(x.nome)}">${esc(rot)}</option>`;
+    }).join("");
+    const alvo = decodeURIComponent(location.hash.slice(1));
+    if (alvo && lista.some((x) => x.nome === alvo)) sel.value = alvo;
+    sel.onchange = () => abrir(sel.value);
+    abrir(sel.value);
+  } catch (e) {
+    doc.innerHTML = `<div id="vazio" class="aviso">não deu para listar: ${esc(String(e.message))}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

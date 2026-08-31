@@ -33,9 +33,12 @@ function conectorBase() {
 }
 
 async function conectorPost(caminho, corpo) {
+  const headers = { "Content-Type": "application/json" };
+  const jwt = getJwt();
+  if (jwt) headers["Authorization"] = "Bearer " + jwt;
   const res = await fetch(conectorBase() + caminho, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(corpo || {}),
   });
   if (!res.ok) {
@@ -162,8 +165,28 @@ function session(id) {
   return sessions[id];
 }
 
+function getJwt() {
+  return localStorage.getItem('loreforge.jwt');
+}
+
+function setJwt(token) {
+  localStorage.setItem('loreforge.jwt', token);
+}
+
+function clearJwt() {
+  localStorage.removeItem('loreforge.jwt');
+}
+
 async function api(path) {
-  const res = await fetch(serverBase() + path);
+  const headers = {};
+  const jwt = getJwt();
+  if (jwt) headers["Authorization"] = "Bearer " + jwt;
+  
+  const res = await fetch(serverBase() + path, { headers });
+  if (res.status === 401) {
+    if (typeof showLogin === "function") showLogin();
+    throw new Error("Não autorizado");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "erro na requisição");
@@ -172,11 +195,19 @@ async function api(path) {
 }
 
 async function apiPost(path, body) {
+  const headers = { "Content-Type": "application/json" };
+  const jwt = getJwt();
+  if (jwt) headers["Authorization"] = "Bearer " + jwt;
+  
   const res = await fetch(serverBase() + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
+  if (res.status === 401) {
+    if (typeof showLogin === "function") showLogin();
+    throw new Error("Não autorizado");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "erro na requisição");
@@ -963,7 +994,12 @@ function ligarAoConector() {
   if (_fonte) { try { _fonte.close(); } catch (_) {} }
   checkConector();
   try {
-    _fonte = new EventSource(conectorBase() + "/eventos");
+    // `EventSource` nativo não manda headers — o JWT viaja na query (spec 056,
+    // FR-023), e só vai se existir (mundo sem login: nada muda).
+    const jwt = getJwt();
+    const url = conectorBase() + "/eventos" +
+      (jwt ? "?token=" + encodeURIComponent(jwt) : "");
+    _fonte = new EventSource(url);
   } catch (_) {
     return;
   }
@@ -1069,16 +1105,109 @@ async function testConnections() {
   setDot(el.dotMente, el.statusMente, con);
 }
 
+const elModal = {
+  login: document.getElementById("login-screen"),
+  select: document.getElementById("select-screen"),
+  myChars: document.getElementById("my-characters"),
+  availChars: document.getElementById("available-characters"),
+  logoutBtn: document.getElementById("logout-btn"),
+  pairingKey: document.getElementById("pairing-key"),
+  btnPair: document.getElementById("btn-pair"),
+  pairStatus: document.getElementById("pair-status"),
+};
+
+function showLogin() {
+  if (!elModal.login) return;
+  elModal.login.hidden = false;
+  elModal.select.hidden = true;
+  document.querySelector(".layout").hidden = true;
+  
+  api("/api/auth/config").then(cfg => {
+    if (cfg.google_client_id && window.google) {
+      window.google.accounts.id.initialize({
+        client_id: cfg.google_client_id,
+        callback: handleGoogleCredential
+      });
+      window.google.accounts.id.renderButton(
+        document.getElementById("g_id_signin"),
+        { theme: "outline", size: "large" }
+      );
+    } else if (!cfg.google_client_id) {
+       showGame();
+    }
+  }).catch(() => showGame());
+}
+
+function handleGoogleCredential(response) {
+  apiPost("/api/auth/login", { id_token: response.credential })
+    .then(data => {
+      setJwt(data.jwt);
+      showSelection();
+    }).catch(e => alert(e.message));
+}
+
+// `image_url` é opcional no frontmatter do personagem (character.md) — sem ela,
+// o card fica só com nome/local, igual antes. `onerror` remove a tag em vez de
+// deixar o ícone quebrado do navegador se a URL cair.
+function charImgHtml(c) {
+  if (!c.image_url) return "";
+  // Relativa (retrato servido pelo próprio server, ex.: /api/character/image)
+  // resolve contra o serverBase() do client — absoluta (http.../https...) vai
+  // como veio.
+  const src = /^https?:\/\//i.test(c.image_url)
+    ? c.image_url : serverBase() + c.image_url;
+  return `<img class="char-avatar" src="${escapeHtml(src)}" alt="" onerror="this.remove()">`;
+}
+
+function showSelection() {
+  elModal.login.hidden = true;
+  elModal.select.hidden = false;
+  document.querySelector(".layout").hidden = true;
+  
+  Promise.all([
+    api("/api/characters/mine"),
+    api("/api/characters/available")
+  ]).then(([mine, avail]) => {
+    elModal.myChars.innerHTML = "";
+    mine.forEach(c => {
+      const d = document.createElement("div");
+      d.className = "char-card";
+      d.innerHTML = `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3><p>${escapeHtml(c.location || "Mundo")}</p>
+        <button onclick="playCharacter('${c.id}')">Jogar</button>
+        <button onclick="apiPost('/api/auth/release-character', {character_id: '${c.id}'}).then(showSelection)">Desassociar</button>`;
+      elModal.myChars.appendChild(d);
+    });
+
+    elModal.availChars.innerHTML = "";
+    avail.forEach(c => {
+      const d = document.createElement("div");
+      d.className = "char-card";
+      d.innerHTML = `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3><p>${escapeHtml(c.location || "Mundo")}</p>
+        <button onclick="apiPost('/api/auth/claim-character', {character_id: '${c.id}'}).then(showSelection)">Associar</button>`;
+      elModal.availChars.appendChild(d);
+    });
+  }).catch(e => alert(e.message));
+}
+
+window.playCharacter = function(id) {
+  elModal.select.hidden = true;
+  document.querySelector(".layout").hidden = false;
+  el.select.innerHTML = `<option value="${id}">${id}</option>`;
+  loadCharacter(id);
+};
+
+function showGame() {
+  if (elModal.login) elModal.login.hidden = true;
+  if (elModal.select) elModal.select.hidden = true;
+  document.querySelector(".layout").hidden = false;
+  loadWorld();
+}
+
 async function loadWorld() {
   try {
-    // Autoria: avisa (sem travar) se algum .md do mundo estiver com schema inválido.
-    api("/api/world/health")
-      .then((h) => {
-        if (h && !h.ok) {
-          console.warn("Loreforge — arquivos do mundo ignorados por schema inválido:", h.problems);
-        }
-      })
-      .catch(() => {});
+    api("/api/world/health").then((h) => {
+      if (h && !h.ok) console.warn("Loreforge — arquivos inválidos:", h.problems);
+    }).catch(() => {});
 
     const characters = await api("/api/characters");
     el.select.innerHTML = "";
@@ -1090,30 +1219,58 @@ async function loadWorld() {
     });
     if (characters.length) await loadCharacter(characters[0].id);
   } catch (e) {
-    el.scene.innerHTML = `<p class="detail-empty">Não foi possível falar com o server: ${escapeHtml(
-      e.message
-    )}</p>`;
+    el.scene.innerHTML = `<p class="detail-empty">Não foi possível falar com o server: ${escapeHtml(e.message)}</p>`;
   }
 }
 
 function init() {
   el.form.addEventListener("submit", onAct);
   el.select.addEventListener("change", () => loadCharacter(el.select.value));
-  // Botões 👁 da cena são recriados via innerHTML a cada render: delegação única.
   el.scene.addEventListener("click", (e) => {
     const b = e.target.closest(".observe-btn");
     if (b) return observeEntity(b.dataset.oid, b.dataset.oname);
     if (e.target.closest(".map-btn")) showKnownRoutes();
   });
-  el.runtimeConfig.addEventListener("click", () => {
-    el.settings.hidden = false;
+  el.runtimeConfig.addEventListener("click", () => el.settings.hidden = false);
+  
+  if (elModal.logoutBtn) elModal.logoutBtn.addEventListener("click", () => {
+    clearJwt();
+    showLogin();
   });
+  
+  // O pareamento (spec 056) é direto client→conector: o código só existe na
+  // memória do PRÓPRIO conector (gerado por `--parear` ou pelo painel dele), e
+  // é ele quem confere o JWT com o mundo — o loreforge-server nunca entra
+  // nesse meio, então isto NÃO passa por `apiPost`/`serverBase()`.
+  if (elModal.btnPair) elModal.btnPair.addEventListener("click", () => {
+    const codigo = elModal.pairingKey.value.trim();
+    if (!codigo) return;
+    const jwt = getJwt();
+    if (!jwt) {
+      elModal.pairStatus.textContent = "Faça login antes de parear.";
+      return;
+    }
+    elModal.pairStatus.textContent = "Pareando...";
+    conectorPost("/parear", { codigo, jwt })
+      .then(res => {
+        elModal.pairStatus.textContent = `Pareado como ${res.email}! O conector está vinculado.`;
+      })
+      .catch(e => {
+        elModal.pairStatus.textContent = "Erro: " + e.message;
+      });
+  });
+
   initSettings();
-  loadWorld();
   ligarAoConector();
 
-  // O relogio da autonomia NAO esta mais aqui (spec 044): quem conta o tempo e
-  // o conector. Esta tela so pinta o que ele manda pelo evento `autonomia`.
+  api("/api/auth/config").then(cfg => {
+    if (cfg.google_client_id) {
+      if (getJwt()) showSelection();
+      else showLogin();
+    } else {
+      showGame();
+    }
+  }).catch(() => showGame());
 }
 
 init();

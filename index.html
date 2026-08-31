@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Loreforge</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -13,9 +14,30 @@
       Personagem:
       <select id="character-select"></select>
     </label>
+    <button id="logout-btn" class="settings-toggle" type="button" title="Sair (Logout)">Sair</button>
     <button id="test-toggle" class="settings-toggle" type="button" title="Testar conexões">⚡</button>
     <button id="settings-toggle" class="settings-toggle" type="button" title="Configurar A Mente">⚙</button>
   </header>
+
+  <div id="login-screen" class="full-screen-modal">
+    <div class="login-box">
+      <h1>Loreforge</h1>
+      <p>Entre com sua conta Google para jogar</p>
+      <div id="g_id_signin"></div>
+    </div>
+  </div>
+
+  <div id="select-screen" class="full-screen-modal" hidden>
+    <div class="select-box">
+      <h1>Seleção de Personagem</h1>
+      
+      <h2>Meus Personagens</h2>
+      <div id="my-characters" class="char-grid"></div>
+      
+      <h2 style="margin-top: 2rem;">Personagens Disponíveis</h2>
+      <div id="available-characters" class="char-grid"></div>
+    </div>
+  </div>
 
   <div id="settings" class="settings" hidden>
     <section class="panel settings-panel">
@@ -52,6 +74,17 @@
       <button id="settings-save" type="button">Salvar</button>
       <span class="settings-note" style="flex-basis:auto">🔒 A sua chave de modelo não vive mais aqui: ela fica no conector, na sua máquina. Esta tela guarda só dois endereços.</span>
     </div>
+
+    <section class="panel settings-panel" style="margin-top: 1rem;">
+      <h2>Pareamento do Conector</h2>
+      <div class="settings-group">
+        <label>Código de Pareamento
+          <input id="pairing-key" type="text" placeholder="XXXX-XXXX">
+        </label>
+        <button id="btn-pair" type="button" style="margin-top:0.5rem">Parear</button>
+        <span id="pair-status" class="settings-note" style="flex-basis:auto; margin-top:0.5rem">Gere o código rodando <code>loreforge --parear</code> no conector.</span>
+      </div>
+    </section>
   </div>
 
   <div id="runtime-banner" class="runtime-banner" hidden>

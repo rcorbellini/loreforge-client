@@ -719,3 +719,78 @@ body {
   .act { gap: 0.4rem; padding: 0.5rem; }
   .act button { padding: 0.55rem 0.9rem; }
 }
+
+/* --- Telas Modais (Spec 056) --- */
+.full-screen-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--bg);
+  background-image: radial-gradient(ellipse at center, #241d12 0%, var(--bg) 60%), var(--noise);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.login-box, .select-box {
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 0 0 1px var(--line-dark), var(--shadow-deep);
+  padding: 2rem;
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
+}
+.select-box {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.login-box h1, .select-box h1 {
+  font-family: inherit;
+  font-variant: small-caps;
+  color: var(--accent);
+  margin-top: 0;
+}
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.char-card {
+  background-color: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 1rem;
+  text-align: left;
+}
+.char-avatar {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  margin-bottom: 0.75rem;
+  background-color: var(--panel);
+}
+.char-card h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--accent-bright);
+}
+.char-card p {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+}
+.char-card button {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+.char-card button:last-child {
+  margin-bottom: 0;
+}
+/* o `hidden` do HTML perde para `display: flex/grid` do autor em especificidade
+   igual — sem este override, login-screen/select-screen/layout ficam sempre
+   visíveis mesmo com o atributo `hidden` presente (mesmo padrão já usado acima
+   para .settings, .settings-group e .runtime-banner). */
+.full-screen-modal[hidden],
+.layout[hidden] {
+  display: none;
+}

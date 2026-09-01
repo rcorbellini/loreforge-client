@@ -120,6 +120,20 @@
         <ul id="memories" class="mem-list"></ul>
       </section>
 
+      <!-- spec 061: os compromissos do personagem, na mão de quem é dono dele.
+           O verbo é ABANDONAR, nunca "excluir": o arquivo continua no disco com
+           `status: abandonada` (Princípio IV), e dizer excluir seria o jogo
+           mentindo sobre o que fez. -->
+      <section class="panel panel-intentions">
+        <h2>Compromissos</h2>
+        <ul id="intentions" class="int-list"></ul>
+        <form id="int-form" class="int-form" hidden>
+          <textarea id="int-input" rows="2" maxlength="2000"
+                    placeholder="A que este personagem se compromete?"></textarea>
+          <button type="submit">Assumir</button>
+        </form>
+      </section>
+
       <div id="detail" class="panel detail">
         <p class="detail-empty">Selecione algo à esquerda para ver os detalhes.</p>
       </div>

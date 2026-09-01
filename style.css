@@ -794,3 +794,32 @@ body {
 .layout[hidden] {
   display: none;
 }
+
+
+/* === COMPROMISSOS (spec 061) ==========================================
+   Mesmo molde da lista de memórias — é o que o mantenedor pediu ("semelhante
+   a memória"). A diferença é que aqui o jogador ESCREVE, então cada item tem
+   uma ação, e o formulário só aparece para quem é dono do personagem. */
+.int-list { list-style: none; margin: 0; padding: 0; }
+.int-list li {
+  display: flex; align-items: flex-start; gap: .5rem;
+  padding: .35rem 0; border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.int-list li .int-texto { flex: 1; line-height: 1.35; }
+.int-list li .int-texto[contenteditable="true"]:focus {
+  outline: 1px dashed rgba(255,255,255,.25); outline-offset: 2px;
+}
+.int-acao {
+  background: none; border: 1px solid rgba(255,255,255,.18);
+  color: inherit; font: inherit; font-size: .78em;
+  padding: .1rem .45rem; border-radius: 3px; cursor: pointer; opacity: .7;
+}
+.int-acao:hover { opacity: 1; }
+.int-empty { opacity: .55; font-style: italic; }
+.int-form { display: flex; gap: .4rem; margin-top: .5rem; }
+.int-form textarea {
+  flex: 1; resize: vertical; font: inherit;
+  background: rgba(0,0,0,.25); color: inherit;
+  border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: .35rem;
+}
+.int-erro { color: #d88; font-size: .85em; margin-top: .35rem; }

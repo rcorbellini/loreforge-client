@@ -58,6 +58,9 @@ const el = {
   selfCard: document.getElementById("self-card"),
   tree: document.getElementById("tree"),
   memories: document.getElementById("memories"),
+  intentions: document.getElementById("intentions"),
+  intForm: document.getElementById("int-form"),
+  intInput: document.getElementById("int-input"),
   detail: document.getElementById("detail"),
   settings: document.getElementById("settings"),
   settingsToggle: document.getElementById("settings-toggle"),
@@ -488,6 +491,117 @@ async function selectNode(span, id) {
 // Memórias na lateral: seção própria, ordem cronológica (as expiradas o server nem
 // devolve). Cada linha mostra o resumo (summary); clicar abre o conteúdo no detalhe,
 // como um item. Os dados já vêm no contexto — não precisa de outra chamada ao server.
+// === COMPROMISSOS (spec 061) ==============================================
+//
+// O jogador cria, corrige e ABANDONA os compromissos do personagem dele, sem
+// passar por LLM nenhuma. Nasceu de dois casos: o Torvin carregou por dois dias
+// a promessa de buscar cravos que estavam na mão de quem estava ao lado dele, e
+// a Elga ficou parada com um compromisso com alguém que ela viu partir. Em
+// nenhum dos dois o personagem errou — o jogo é que não tinha porta de saída.
+//
+// A LEITURA sai do CONTEXTO que já é buscado (nenhum endpoint novo): assim o
+// painel não pode divergir do que a Mente vê, porque lê da mesma fonte. Depois
+// de cada escrita, o contexto é RECONSULTADO — nunca se atualiza a lista aqui
+// por otimismo, senão a tela mostraria o que o mundo não tem.
+
+// Quem pode escrever aqui. `null` enquanto não se sabe; o painel só oferece
+// escrita quando a resposta é sim.
+let intencoesEditaveis = false;
+
+function _intErro(texto) {
+  const antigo = el.intentions.parentElement.querySelector(".int-erro");
+  if (antigo) antigo.remove();
+  if (!texto) return;
+  const p = document.createElement("p");
+  p.className = "int-erro";
+  p.textContent = texto;
+  el.intentions.parentElement.appendChild(p);
+}
+
+async function _intEscrever(caminho, corpo) {
+  _intErro("");
+  try {
+    await apiPost(caminho, { character_id: currentCharacter, ...corpo });
+  } catch (e) {
+    // A recusa aqui é do PROTOCOLO (não é seu, está agindo, texto grande
+    // demais) — nunca frase de mundo. Por isso vai num aviso do painel, e não
+    // no log narrativo: vocabulário de sistema na narração fere o isolamento.
+    _intErro(e.message || "não deu para escrever isso agora");
+    return false;
+  }
+  // RECONSULTA em vez de atualizar local: o painel nunca mostra o que o mundo
+  // não tem.
+  await refreshContext();
+  return true;
+}
+
+function renderIntentions(intentions) {
+  if (!el.intentions) return;
+  const list = (intentions || []).filter((i) => i && i.content);
+  el.intentions.innerHTML = "";
+  if (el.intForm) el.intForm.hidden = !intencoesEditaveis;
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "int-empty";
+    li.textContent = "Nenhum compromisso assumido.";
+    el.intentions.appendChild(li);
+    return;
+  }
+  list.forEach((intencao) => {
+    const li = document.createElement("li");
+    const texto = document.createElement("span");
+    texto.className = "int-texto";
+    texto.textContent = intencao.content;
+    li.appendChild(texto);
+
+    if (intencoesEditaveis) {
+      // CORRIGIR no lugar, preservando o id — é o que distingue "corrigir" de
+      // "abandonar e assumir outro".
+      texto.contentEditable = "true";
+      texto.spellcheck = false;
+      const original = intencao.content;
+      texto.addEventListener("blur", async () => {
+        const novo = texto.textContent.trim();
+        if (!novo || novo === original) { texto.textContent = original; return; }
+        if (!(await _intEscrever("/api/intention/update",
+                                 { intention_id: intencao.id, content: novo }))) {
+          texto.textContent = original;
+        }
+      });
+      texto.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); texto.blur(); }
+        if (ev.key === "Escape") { texto.textContent = original; texto.blur(); }
+      });
+
+      // ABANDONAR, nunca "excluir": o arquivo continua no disco com
+      // `status: abandonada`. Dizer excluir e não excluir seria mentir.
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.className = "int-acao";
+      botao.textContent = "abandonar";
+      botao.title = "Deixa de guiar o personagem. O compromisso fica registrado.";
+      botao.addEventListener("click", () =>
+        _intEscrever("/api/intention/close", { intention_id: intencao.id }));
+      li.appendChild(botao);
+    }
+    el.intentions.appendChild(li);
+  });
+}
+
+// O formulário de ASSUMIR um compromisso novo. Só existe para quem é dono — o
+// `hidden` é controlado em `renderIntentions`, e o servidor recusa de todo jeito
+// (a tela esconder é conveniência, não segurança).
+if (el.intForm) {
+  el.intForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const texto = (el.intInput.value || "").trim();
+    if (!texto) { _intErro("escreva o compromisso antes de assumir"); return; }
+    if (await _intEscrever("/api/intention/create", { content: texto })) {
+      el.intInput.value = "";
+    }
+  });
+}
+
 function renderMemories(memories) {
   const list = (memories || [])
     .slice()
@@ -748,6 +862,7 @@ function appendIntent(charId, name, intent) {
 
 async function loadCharacter(id) {
   currentCharacter = id;
+  await _apurarSeEhMeu(id);   // spec 061: quem pode escrever compromisso
   renderConectorInfo();   // o aviso de "a Mente joga outro" muda com a seleção
   // A tela passa a ser deste personagem: histórico e lock são os DELE.
   renderLog(id);
@@ -765,6 +880,7 @@ async function loadCharacter(id) {
   renderSelf(inventory);
   renderTree(inventory);
   renderMemories(context.memories);
+  renderIntentions(context.intentions);
   el.detail.innerHTML = `<p class="detail-empty">Selecione algo à esquerda para ver os detalhes.</p>`;
 
   // spec 044: a chegada de viagem deixou de ser gatilho DESTA tela. Quem decide
@@ -1158,6 +1274,20 @@ function charImgHtml(c) {
     ? c.image_url : serverBase() + c.image_url;
   return `<img class="char-avatar" src="${escapeHtml(src)}" alt="" onerror="this.remove()">`;
 }
+
+// Este personagem é meu? A resposta vem da MESMA lista que a tela de seleção
+// usa (`/api/characters/mine`) — nada de inferir por tela. Se a consulta falhar
+// (mundo sem auth, por exemplo), o painel fica somente-leitura: é o lado seguro,
+// e o servidor recusaria de qualquer jeito.
+async function _apurarSeEhMeu(id) {
+  try {
+    const meus = await api("/api/characters/mine");
+    intencoesEditaveis = (meus || []).some((c) => c && c.id === id);
+  } catch (_) {
+    intencoesEditaveis = false;
+  }
+}
+
 
 function showSelection() {
   elModal.login.hidden = true;

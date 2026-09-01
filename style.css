@@ -18,6 +18,7 @@
   --rarity-self: #efc272;
   --rarity-item: #74acd9;
   --rarity-memory: #b491df;
+  --rarity-intent: #83b892;
   --warn: #d98a5f;
   --ok: #6f9a4a; /* verde terroso p/ status de conexão (spec 039) */
   --shadow-deep: 0 3px 10px rgba(0, 0, 0, 0.55);
@@ -823,3 +824,109 @@ body {
   border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: .35rem;
 }
 .int-erro { color: #d88; font-size: .85em; margin-top: .35rem; }
+
+/* ══ COMPROMISSOS (spec 061) ══════════════════════════════════════════════
+   A quarta categoria de raridade. Memória é o passado (roxo), pertence é o
+   presente na mão (azul), você é quem age (dourado) — compromisso é o FUTURO,
+   e ganha um verdete de pátina que não se confunde com nenhum dos três.
+   Diferente dos outros painéis, este é ESCRITA: por isso tem controles, e por
+   isso cada controle precisa dizer, sozinho, que está em voo. */
+.panel-intentions h2::before { content: "\25b8  "; }
+
+.int-list { list-style: none; margin: 0; padding: 0; }
+/* texto em cima, controles embaixo à direita: lado a lado, "EDITAR ABANDONAR"
+   comia metade da largura da barra e quebrava o compromisso em três linhas. */
+.int-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 3px;
+  border-left: 2px solid var(--rarity-intent);
+  margin: 0.15rem 0;
+}
+.int-node:hover { background: var(--panel-2); }
+.int-texto { flex: 1; color: var(--ink); font-size: 0.9rem; line-height: 1.35; }
+.int-empty { color: var(--ink-dim); font-style: italic; font-size: 0.85rem; padding: 0.2rem 0.4rem; }
+
+/* Em edição o texto vira campo: sem isso, `contenteditable` é invisível e
+   ninguém descobre que está editando — foi a queixa literal do primeiro uso. */
+.int-editando {
+  background: var(--panel-3);
+  border-radius: 2px;
+  padding: 0.15rem 0.3rem;
+  box-shadow: 0 0 0 1px var(--accent);
+  font-style: normal;
+  outline: none;
+}
+
+/* Os controles só aparecem inteiros no hover/foco — o painel fica limpo para
+   quem só está lendo, mas o `opacity` nunca vai a zero: uma afordância que
+   some por completo não é descoberta. */
+.int-acoes { display: flex; gap: 0.25rem; justify-content: flex-start; opacity: 0.55; transition: opacity 0.12s; }
+.int-node:hover .int-acoes, .int-node:focus-within .int-acoes { opacity: 1; }
+.int-acao {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  border-radius: 2px;
+  padding: 0.1rem 0.35rem;
+  font-family: inherit;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.int-acao:hover:not(:disabled) { border-color: var(--accent-bright); color: var(--accent-bright); }
+.int-acao:disabled { opacity: 0.35; cursor: progress; }
+.int-acao-larga:hover:not(:disabled) { border-color: var(--warn); color: var(--warn); }
+/* saindo: o item esmaece ENQUANTO a escrita corre, então o clique tem resposta
+   imediata mesmo antes do servidor responder. */
+.int-saindo { opacity: 0.4; text-decoration: line-through; text-decoration-color: var(--warn); }
+/* a lista inteira fica inerte durante uma escrita: sem isto o segundo clique
+   chegava ao servidor e voltava 409 "não está aberto" — sobre algo que a
+   própria pessoa já tinha abandonado com sucesso. */
+.int-ocupado { pointer-events: none; }
+
+.int-form { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.6rem; }
+.int-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.4rem;
+}
+.int-form textarea:focus { outline: none; box-shadow: 0 0 0 1px var(--accent); }
+.int-form button {
+  align-self: flex-end;
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  border: 1px solid var(--line-dark);
+  border-radius: 3px;
+  color: #1a1712;
+  cursor: pointer;
+  font-family: inherit;
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.9rem;
+}
+.int-form button:hover:not(:disabled) { box-shadow: 0 0 10px rgba(205, 154, 66, 0.45); }
+.int-form button:disabled { opacity: 0.45; cursor: progress; box-shadow: none; }
+
+/* O aviso do painel. Recusa aqui é de PROTOCOLO (não é seu, está agindo, texto
+   longo demais) — nunca frase de mundo, por isso vive aqui e não no log. */
+.int-aviso { font-size: 0.78rem; margin: 0.45rem 0 0; padding: 0.2rem 0.4rem; font-style: italic; }
+.int-aviso-erro { color: var(--warn); border-left: 2px solid var(--warn); }
+.int-aviso-ok { color: var(--rarity-intent); border-left: 2px solid var(--rarity-intent); }
+/* "em voo": pulsa. Animar `content` por keyframes não é confiável entre
+   navegadores — opacidade é, e diz a mesma coisa. */
+.int-aviso-voando {
+  color: var(--accent-dim);
+  border-left: 2px solid var(--accent-dim);
+  animation: int-pulso 1.1s ease-in-out infinite;
+}
+@keyframes int-pulso { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }

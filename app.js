@@ -501,37 +501,57 @@ async function selectNode(span, id) {
 //
 // A LEITURA sai do CONTEXTO que já é buscado (nenhum endpoint novo): assim o
 // painel não pode divergir do que a Mente vê, porque lê da mesma fonte. Depois
-// de cada escrita, o contexto é RECONSULTADO — nunca se atualiza a lista aqui
+// de cada escrita o personagem é RECARREGADO — nunca se atualiza a lista aqui
 // por otimismo, senão a tela mostraria o que o mundo não tem.
 
-// Quem pode escrever aqui. `null` enquanto não se sabe; o painel só oferece
-// escrita quando a resposta é sim.
+// Quem pode escrever aqui. O painel só oferece escrita quando é sim.
 let intencoesEditaveis = false;
+// Enquanto uma escrita está em voo: trava os controles e mostra que algo corre.
+// Sem isto o jogador clica, nada muda por um segundo, e ele clica de novo — que
+// foi exatamente o que aconteceu no primeiro uso real.
+let intencaoEmVoo = false;
 
-function _intErro(texto) {
-  const antigo = el.intentions.parentElement.querySelector(".int-erro");
+function _intAviso(texto, tipo) {
+  const painel = el.intentions && el.intentions.parentElement;
+  if (!painel) return;
+  const antigo = painel.querySelector(".int-aviso");
   if (antigo) antigo.remove();
   if (!texto) return;
   const p = document.createElement("p");
-  p.className = "int-erro";
+  p.className = "int-aviso" + (tipo ? ` int-aviso-${tipo}` : "");
   p.textContent = texto;
-  el.intentions.parentElement.appendChild(p);
+  painel.appendChild(p);
+  if (tipo === "ok") {
+    // a confirmação some sozinha; o erro fica até a próxima ação
+    setTimeout(() => { if (p.isConnected) p.remove(); }, 2600);
+  }
 }
 
-async function _intEscrever(caminho, corpo) {
-  _intErro("");
+async function _intEscrever(caminho, corpo, dizendo) {
+  if (intencaoEmVoo) return false;
+  intencaoEmVoo = true;
+  _intAviso(dizendo || "gravando…", "voando");
+  if (el.intentions) el.intentions.classList.add("int-ocupado");
   try {
     await apiPost(caminho, { character_id: currentCharacter, ...corpo });
   } catch (e) {
-    // A recusa aqui é do PROTOCOLO (não é seu, está agindo, texto grande
-    // demais) — nunca frase de mundo. Por isso vai num aviso do painel, e não
-    // no log narrativo: vocabulário de sistema na narração fere o isolamento.
-    _intErro(e.message || "não deu para escrever isso agora");
+    // A recusa aqui é de PROTOCOLO (não é seu, está agindo, texto grande
+    // demais) — nunca frase de mundo. Por isso vive no painel, e não no log
+    // narrativo: vocabulário de sistema na narração fere o isolamento.
+    _intAviso(e.message || "não deu para escrever isso agora", "erro");
     return false;
+  } finally {
+    intencaoEmVoo = false;
+    if (el.intentions) el.intentions.classList.remove("int-ocupado");
   }
-  // RECONSULTA em vez de atualizar local: o painel nunca mostra o que o mundo
-  // não tem.
-  await refreshContext();
+  // RECARREGA o personagem: é `loadCharacter` que busca o contexto e redesenha
+  // tudo, inclusive esta lista. (A primeira versão chamava um `refreshContext`
+  // que NÃO EXISTIA — a escrita acontecia e a linha seguinte estourava, então a
+  // lista nunca atualizava e nenhum aviso aparecia. Foi o defeito que o primeiro
+  // uso real encontrou em trinta segundos.)
+  try {
+    await loadCharacter(currentCharacter);
+  } catch (_) { /* recarga falhou: a escrita valeu, a tela se corrige no próximo */ }
   return true;
 }
 
@@ -543,47 +563,100 @@ function renderIntentions(intentions) {
   if (!list.length) {
     const li = document.createElement("li");
     li.className = "int-empty";
-    li.textContent = "Nenhum compromisso assumido.";
+    li.textContent = intencoesEditaveis
+      ? "Nenhum compromisso. Escreva um abaixo."
+      : "Nenhum compromisso assumido.";
     el.intentions.appendChild(li);
     return;
   }
   list.forEach((intencao) => {
     const li = document.createElement("li");
+    li.className = "int-node";
+
     const texto = document.createElement("span");
     texto.className = "int-texto";
     texto.textContent = intencao.content;
     li.appendChild(texto);
 
-    if (intencoesEditaveis) {
-      // CORRIGIR no lugar, preservando o id — é o que distingue "corrigir" de
-      // "abandonar e assumir outro".
+    if (!intencoesEditaveis) { el.intentions.appendChild(li); return; }
+
+    // CORRIGIR no lugar, preservando o id — é o que distingue "corrigir" de
+    // "abandonar e assumir outro". A afordância precisa ser VISÍVEL: sem um
+    // botão, ninguém descobre que dá para editar (foi o relato do primeiro uso).
+    const original = intencao.content;
+    let editando = false;
+
+    const acoes = document.createElement("span");
+    acoes.className = "int-acoes";
+
+    const bEditar = document.createElement("button");
+    bEditar.type = "button";
+    bEditar.className = "int-acao";
+    bEditar.textContent = "editar";
+    bEditar.title = "Reescrever este compromisso, mantendo-o o mesmo.";
+
+    const bAbandonar = document.createElement("button");
+    bAbandonar.type = "button";
+    bAbandonar.className = "int-acao int-acao-larga";
+    bAbandonar.textContent = "abandonar";
+    bAbandonar.title = "Deixa de guiar o personagem. Fica registrado, não some.";
+
+    function sair(valor) {
+      editando = false;
+      texto.contentEditable = "false";
+      texto.classList.remove("int-editando");
+      texto.textContent = valor;
+      bEditar.textContent = "editar";
+      bAbandonar.hidden = false;
+    }
+
+    async function gravar() {
+      const novo = texto.textContent.trim();
+      if (!novo || novo === original) { sair(original); return; }
+      sair(novo);
+      if (!(await _intEscrever("/api/intention/update",
+                               { intention_id: intencao.id, content: novo },
+                               "corrigindo…"))) {
+        texto.textContent = original;
+      }
+    }
+
+    bEditar.addEventListener("click", () => {
+      if (intencaoEmVoo) return;
+      if (editando) { gravar(); return; }
+      editando = true;
       texto.contentEditable = "true";
       texto.spellcheck = false;
-      const original = intencao.content;
-      texto.addEventListener("blur", async () => {
-        const novo = texto.textContent.trim();
-        if (!novo || novo === original) { texto.textContent = original; return; }
-        if (!(await _intEscrever("/api/intention/update",
-                                 { intention_id: intencao.id, content: novo }))) {
-          texto.textContent = original;
-        }
-      });
-      texto.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { ev.preventDefault(); texto.blur(); }
-        if (ev.key === "Escape") { texto.textContent = original; texto.blur(); }
-      });
+      texto.classList.add("int-editando");
+      bEditar.textContent = "salvar";
+      bAbandonar.hidden = true;
+      texto.focus();
+      // cursor no fim, para ele continuar escrevendo em vez de sobrescrever
+      const sel = window.getSelection();
+      const r = document.createRange();
+      r.selectNodeContents(texto); r.collapse(false);
+      sel.removeAllRanges(); sel.addRange(r);
+    });
+    texto.addEventListener("keydown", (ev) => {
+      if (!editando) return;
+      if (ev.key === "Enter") { ev.preventDefault(); gravar(); }
+      if (ev.key === "Escape") { ev.preventDefault(); sair(original); }
+    });
 
-      // ABANDONAR, nunca "excluir": o arquivo continua no disco com
-      // `status: abandonada`. Dizer excluir e não excluir seria mentir.
-      const botao = document.createElement("button");
-      botao.type = "button";
-      botao.className = "int-acao";
-      botao.textContent = "abandonar";
-      botao.title = "Deixa de guiar o personagem. O compromisso fica registrado.";
-      botao.addEventListener("click", () =>
-        _intEscrever("/api/intention/close", { intention_id: intencao.id }));
-      li.appendChild(botao);
-    }
+    bAbandonar.addEventListener("click", () => {
+      if (intencaoEmVoo) return;
+      bAbandonar.disabled = true;      // o clique repetido era o defeito nº 2
+      li.classList.add("int-saindo");
+      _intEscrever("/api/intention/close", { intention_id: intencao.id },
+                   "abandonando…").then((ok) => {
+        if (ok) _intAviso("compromisso abandonado — fica registrado", "ok");
+        else { bAbandonar.disabled = false; li.classList.remove("int-saindo"); }
+      });
+    });
+
+    acoes.appendChild(bEditar);
+    acoes.appendChild(bAbandonar);
+    li.appendChild(acoes);
     el.intentions.appendChild(li);
   });
 }
@@ -595,9 +668,15 @@ if (el.intForm) {
   el.intForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const texto = (el.intInput.value || "").trim();
-    if (!texto) { _intErro("escreva o compromisso antes de assumir"); return; }
-    if (await _intEscrever("/api/intention/create", { content: texto })) {
+    if (!texto) { _intAviso("escreva o compromisso antes de assumir", "erro"); return; }
+    const botao = el.intForm.querySelector("button");
+    if (botao) botao.disabled = true;
+    const ok = await _intEscrever("/api/intention/create", { content: texto },
+                                  "assumindo…");
+    if (botao) botao.disabled = false;
+    if (ok) {
       el.intInput.value = "";
+      _intAviso("compromisso assumido", "ok");
     }
   });
 }

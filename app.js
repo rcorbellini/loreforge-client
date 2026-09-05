@@ -323,8 +323,8 @@ async function observeEntity(id, name) {
   }
 }
 
-// spec 035: `location.pertence_a` é uma ESTRUTURA aninhada (o nível mais
-// próximo primeiro, cada um apontando de novo pra `pertence_a` de quem o
+// spec 035: `location.belongs_to` é uma ESTRUTURA aninhada (o nível mais
+// próximo primeiro, cada um apontando de novo pra `belongs_to` de quem o
 // contém — mesma chave em cada nível, é a MESMA relação repetida) — não uma
 // lista. Achata pra exibir a trilha "região > cidade > lugar", na ordem de
 // leitura de fora pra dentro (o oposto da ordem de aninhamento).
@@ -332,7 +332,7 @@ function flattenLineage(node) {
   const chain = [];
   while (node) {
     chain.push(node.name || node.id);
-    node = node.pertence_a;
+    node = node.belongs_to;
   }
   return chain.reverse();
 }
@@ -341,7 +341,7 @@ function renderScene(context) {
   const loc = context.location || {};
   // Trilha da hierarquia de location (spec 035: região > cidade > lugar > quarto)
   // — só orientação, sem obsBtnHtml para não poluir a trilha de olhos.
-  const breadcrumbChain = flattenLineage(loc.pertence_a);
+  const breadcrumbChain = flattenLineage(loc.belongs_to);
   const breadcrumbHtml = breadcrumbChain.length
     ? `<div class="breadcrumb">${breadcrumbChain
         .map((n) => escapeHtml(n))

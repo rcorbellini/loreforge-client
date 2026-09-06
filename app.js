@@ -126,8 +126,8 @@ function gerarDiffTextual(ctxVelho, ctxNovo) {
   if (!ctxVelho || !ctxNovo) return eventos;
 
   // 1. Quem chegou e quem saiu
-  const charsVelhos = (ctxVelho.characters_present || []).map(c => c.name);
-  const charsNovos = (ctxNovo.characters_present || []).map(c => c.name);
+  const charsVelhos = ((ctxVelho.scene && ctxVelho.scene.characters) || []).map(c => c.name);
+  const charsNovos = ((ctxNovo.scene && ctxNovo.scene.characters) || []).map(c => c.name);
   
   const chegaram = charsNovos.filter(n => !charsVelhos.includes(n));
   const sairam = charsVelhos.filter(v => !charsNovos.includes(v));
@@ -136,8 +136,8 @@ function gerarDiffTextual(ctxVelho, ctxNovo) {
   sairam.forEach(c => eventos.push(`${c} saiu do local.`));
 
   // 2. Itens que apareceram ou sumiram do chão
-  const itensVelhos = (ctxVelho.items_present || []).map(i => i.name);
-  const itensNovos = (ctxNovo.items_present || []).map(i => i.name);
+  const itensVelhos = ((ctxVelho.scene && ctxVelho.scene.items) || []).map(i => i.name);
+  const itensNovos = ((ctxNovo.scene && ctxNovo.scene.items) || []).map(i => i.name);
 
   const cairam = itensNovos.filter(n => !itensVelhos.includes(n));
   const sumiram = itensVelhos.filter(v => !itensNovos.includes(v));
@@ -338,7 +338,7 @@ function flattenLineage(node) {
 }
 
 function renderScene(context) {
-  const loc = context.location || {};
+  const loc = (context.scene && context.scene.place) || {};
   // Trilha da hierarquia de location (spec 035: região > cidade > lugar > quarto)
   // — só orientação, sem obsBtnHtml para não poluir a trilha de olhos.
   const breadcrumbChain = flattenLineage(loc.belongs_to);
@@ -347,7 +347,7 @@ function renderScene(context) {
         .map((n) => escapeHtml(n))
         .join('<span class="crumb-sep">\u203a</span>')}</div>`
     : "";
-  const others = (context.characters_present || []).filter(
+  const others = ((context.scene && context.scene.characters) || []).filter(
     (c) => c.state !== "self"
   );
   const presentHtml = others.length
@@ -361,26 +361,26 @@ function renderScene(context) {
         .join("")}</ul>`
     : `<div class="present-empty">Você está sozinho aqui.</div>`;
   // Objects presentes na cena (spec 002, US3) — mesma lista, categoria própria.
-  const objects = context.objects_present || [];
+  const objects = (context.scene && context.scene.objects) || [];
   const objectsHtml = objects.length
     ? `<div class="present-label">Há também</div><ul class="objects-list">${objects
         .map((o) => `<li>${escapeHtml(o.name)}${obsBtnHtml(o.id, o.name)}</li>`)
         .join("")}</ul>`
     : "";
-  const items = context.items_present || [];
+  const items = (context.scene && context.scene.items) || [];
   const itemsHtml = items.length
     ? `<div class="present-label">No chão</div><ul class="items-list">${items
         .map((it) => `<li>${escapeHtml(it.name)}${obsBtnHtml(it.id, it.name)}</li>`)
         .join("")}</ul>`
     : "";
-  const routes = context.routes || [];
+  const routes = (context.scene && context.scene.exits) || [];
   // O que ele SABE de caminhos não vem no contexto (memória de rota é maquinaria
   // de viagem e não desce ao client): o mapa se pede à parte, e por isso é botão.
   const mapaBtn =
     ` <button class="map-btn" type="button" title="O que sei dos caminhos">` +
     `\u25c6 caminhos que conheço</button>`;
   let exitsHtml = "";
-  if (context.in_transit) {
+  if (context.self && context.self.transit) {
     exitsHtml = `<div class="exits-empty">Você está a caminho.${mapaBtn}</div>`;
   } else if (routes.length) {
     exitsHtml =
@@ -399,7 +399,7 @@ function renderScene(context) {
   el.scene.innerHTML =
     breadcrumbHtml +
     `<h3>${escapeHtml(loc.name || "Lugar desconhecido")}${obsBtnHtml(loc.id, loc.name)}</h3>` +
-    `<div class="loc-narrative">${escapeHtml(loc.narrative || "")}</div>` +
+    `<div class="loc-narrative">${escapeHtml(loc.prose || "")}</div>` +
     presentHtml +
     objectsHtml +
     itemsHtml +
@@ -965,7 +965,7 @@ async function loadCharacter(id) {
   // spec 044: a chegada de viagem deixou de ser gatilho DESTA tela. Quem decide
   // se ha algo a fazer e a Mente, e ela vive no conector com relogio proprio -
   // inclusive quando ninguem esta com a aba aberta, que era o furo de antes.
-  session(id).wasInTransit = context.in_transit;
+  session(id).wasInTransit = !!(context.self && context.self.transit);
 
 }
 

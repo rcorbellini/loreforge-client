@@ -958,8 +958,10 @@ async function loadCharacter(id) {
   renderScene(context);
   renderSelf(inventory);
   renderTree(inventory);
-  renderMemories(context.memories);
-  renderIntentions(context.intentions);
+  // spec 067: a raiz do contexto tem SÓ `self` e `scene`. Memória e compromisso são
+  // o que o personagem SABE e PRETENDE — vivem em `self`, nunca na raiz.
+  renderMemories(context.self && context.self.memories);
+  renderIntentions(context.self && context.self.intentions);
   el.detail.innerHTML = `<p class="detail-empty">Selecione algo à esquerda para ver os detalhes.</p>`;
 
   // spec 044: a chegada de viagem deixou de ser gatilho DESTA tela. Quem decide

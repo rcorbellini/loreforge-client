@@ -1,0 +1,13 @@
+{
+  "name": "loreforge-client",
+  "version": "0.1.0",
+  "description": "A tela do Loreforge — HTML/CSS/JS servidos estáticos, sem build.",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

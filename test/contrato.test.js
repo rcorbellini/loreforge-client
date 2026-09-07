@@ -31,9 +31,17 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-// A RAIZ do contrato, em `docs/contrato-do-contexto.md`: "Nada mais fica na raiz."
-// Se o server passar a devolver um terceiro nó, é esta lista que se atualiza.
-const RAIZ_DO_CONTRATO = ["scene", "self"];
+// A RAIZ do que a TELA recebe. Cuidado com a diferença, que não é pedantismo:
+//
+//   `motor.get_context()`  ->  { self, scene }              (spec 067: "nada mais fica
+//                                                             na raiz")
+//   `GET /api/context`     ->  { self, scene, capacidades }  (app.py:1143 acrescenta
+//                                                             a face da cena)
+//
+// A tela consome o ENDPOINT. Hoje ela não lê `capacidades` — e não deve mesmo, porque
+// listar mecânica na interface é o que o Princípio V proíbe —, mas a chave existe na
+// resposta, e um teste que a tratasse como inexistente estaria mentindo sobre a API.
+const RAIZ_DO_CONTRATO = ["capacidades", "scene", "self"];
 
 // Os nós de segundo nível, para o teste 2. Copiados da saída real de `get_context`
 // (`draven-vigia`, 2026-09-07), não inventados.

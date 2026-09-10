@@ -47,15 +47,38 @@ function guardarSalas(lista) {
 // `loreforge.conectorBase`: quem já tinha um endereço configurado encontra a primeira
 // sala já na lista, sem reconfigurar nada, e todo o resto do arquivo (que lê
 // `conectorBase()`) segue funcionando sem saber que salas existem.
+//
+// E ELA ACONTECE UMA VEZ SÓ — a marca é o que conserta o "Esquecer".
+//
+// Sem a marca, `migrarSalas()` rodava a cada `showSalas()` e RE-ADICIONAVA a sala
+// derivada do `conectorBase`. Quem clicasse em "Esquecer" via a sala sumir e voltar no
+// mesmo repintar, como se o botão não funcionasse — e ele funcionava; era a migração
+// desfazendo o trabalho dele um milissegundo depois.
+const CHAVE_MIGRADO = "loreforge.salas.migrado";
+
 function migrarSalas() {
   const lista = salasConhecidas();
+  let jaMigrou = false;
+  try { jaMigrou = localStorage.getItem(CHAVE_MIGRADO) === "1"; } catch (_) {}
+  if (jaMigrou) return lista;
   let antigo = null;
   try { antigo = localStorage.getItem(CHAVE_SALA_ATUAL); } catch (_) {}
   if (antigo && !lista.some((s) => s.endereco === antigo)) {
     lista.unshift({ nome: "Minha sala", endereco: antigo });
     guardarSalas(lista);
   }
+  try { localStorage.setItem(CHAVE_MIGRADO, "1"); } catch (_) {}
   return lista;
+}
+
+// Esquecer a sala EM USO tem de largar o ponteiro também, senão o conector continua
+// sendo aquele — a sala some da lista e o jogo segue falando com ela.
+function esquecerSala(endereco) {
+  const alvo = endereco.replace(/\/$/, "");
+  guardarSalas(salasConhecidas().filter((s) => s.endereco.replace(/\/$/, "") !== alvo));
+  if (conectorBase() === alvo) {
+    try { localStorage.removeItem(CHAVE_SALA_ATUAL); } catch (_) {}
+  }
 }
 
 function lembrarSala(sala) {
@@ -1395,6 +1418,8 @@ const elModal = {
   salaNome: document.getElementById("sala-nome"),
   salaStatus: document.getElementById("sala-status"),
   salaAtualNome: document.getElementById("sala-atual-nome"),
+  salaLotacao: document.getElementById("sala-lotacao"),
+  mesaChars: document.getElementById("mesa-characters"),
   trocarSala: document.getElementById("trocar-sala"),
   autoCheck: document.getElementById("auto-check"),
   autoLabel: document.getElementById("auto-label"),
@@ -1516,8 +1541,7 @@ function showSalas() {
   });
   elModal.salas.querySelectorAll("[data-esquecer]").forEach((b) => {
     b.onclick = () => {
-      const alvo = b.getAttribute("data-esquecer");
-      guardarSalas(salasConhecidas().filter((s) => s.endereco !== alvo));
+      esquecerSala(b.getAttribute("data-esquecer"));
       showSalas();
     };
   });
@@ -1543,35 +1567,159 @@ function showSelection() {
   elModal.login.hidden = true;
   if (elModal.sala) elModal.sala.hidden = true;
   elModal.select.hidden = false;
+  document.querySelector(".layout").hidden = true;
   const s = salaAtual();
   if (elModal.salaAtualNome) {
     elModal.salaAtualNome.textContent = s ? (s.nome || s.endereco) : conectorBase();
   }
-  document.querySelector(".layout").hidden = true;
-  
-  Promise.all([
-    api("/api/characters/mine"),
-    api("/api/characters/available")
-  ]).then(([mine, avail]) => {
-    elModal.myChars.innerHTML = "";
-    mine.forEach(c => {
-      const d = document.createElement("div");
-      d.className = "char-card";
-      d.innerHTML = `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3><p>${escapeHtml(c.location || "Mundo")}</p>
-        <button onclick="playCharacter('${c.id}')">Jogar</button>
-        <button onclick="apiPost('/api/auth/release-character', {character_id: '${c.id}'}).then(showSelection)">Desassociar</button>`;
-      elModal.myChars.appendChild(d);
-    });
+  pintarGestaoDaMesa();
+}
 
+// A GESTÃO DA MESA (spec 072, US4).
+//
+// Três listas, e a ordem é a da pergunta que o jogador faz ao chegar: quem já está
+// sentado? quais dos meus posso sentar? o que mais existe no mundo?
+//
+// O QUE É SEU E O QUE NÃO É fica explícito. O personagem de outro membro aparece — a
+// mesa é pública, como numa roda —, mas sem botão: não é seu para jogar nem para tirar.
+// Esconder os outros faria a mesa parecer vazia e o teto de cadeiras, arbitrário.
+async function pintarGestaoDaMesa() {
+  const jwt = getJwt();
+  let mesa = null, minhas = [], disponiveis = [];
+  try {
+    const r = await fetch(conectorBase() + "/sala",
+      { headers: jwt ? { Authorization: "Bearer " + jwt } : {} });
+    if (r.ok) mesa = await r.json();
+  } catch (_) { /* conector fora do ar: a tela diz isso abaixo */ }
+  try { minhas = await api("/api/characters/mine"); } catch (_) {}
+  try { disponiveis = await api("/api/characters/available"); } catch (_) {}
+
+  if (!mesa) {
+    elModal.mesaChars.innerHTML =
+      `<p class="sala-lede">Esta sala não respondeu. Ela pode estar desligada —
+        <button type="button" class="link-btn" onclick="showSalas()">escolher outra</button>.</p>`;
+    elModal.myChars.innerHTML = "";
     elModal.availChars.innerHTML = "";
-    avail.forEach(c => {
-      const d = document.createElement("div");
-      d.className = "char-card";
-      d.innerHTML = `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3><p>${escapeHtml(c.location || "Mundo")}</p>
-        <button onclick="apiPost('/api/auth/claim-character', {character_id: '${c.id}'}).then(showSelection)">Associar</button>`;
-      elModal.availChars.appendChild(d);
-    });
-  }).catch(e => alert(e.message));
+    return;
+  }
+
+  const eu = mesa.voce;
+  const meusNaMesa = (mesa.assentos || []).filter((a) => a.dono === eu);
+  const cheia = mesa.maxAssentos && mesa.assentos.length >= mesa.maxAssentos;
+  const noMeuTeto = mesa.maxPorJogador && meusNaMesa.length >= mesa.maxPorJogador;
+
+  // A LOTAÇÃO PRECISA APARECER ANTES DE ALGUÉM TENTAR. Descobrir o teto pela recusa é a
+  // pior forma de conhecer uma regra.
+  if (elModal.salaLotacao) {
+    const partes = [`${mesa.assentos.length}${mesa.maxAssentos ? "/" + mesa.maxAssentos : ""} à mesa`];
+    if (mesa.maxPorJogador) {
+      partes.push(`${meusNaMesa.length}/${mesa.maxPorJogador} seus`);
+    }
+    elModal.salaLotacao.textContent = "(" + partes.join(" · ") + ")";
+  }
+
+  const nomeDoDono = (sub) => {
+    const m = (mesa.membros || []).find((x) => x.sub === sub);
+    return m ? (m.nome || m.email || "outro jogador") : "outro jogador";
+  };
+
+  // --- quem está sentado ---
+  elModal.mesaChars.innerHTML = "";
+  if (!mesa.assentos.length) {
+    elModal.mesaChars.innerHTML = `<p class="sala-lede">A mesa está vazia. Sente alguém.</p>`;
+  }
+  for (const a of mesa.assentos) {
+    const meu = a.dono === eu;
+    const d = document.createElement("div");
+    d.className = "char-card";
+    const estado = mesa.jogando === a.personagem ? "jogando agora"
+      : a.autonomia.permitido && a.autonomia.ligado ? "age sozinho"
+      : a.autonomia.permitido ? "só ao seu comando" : "autônomo bloqueado";
+    d.innerHTML =
+      `<h3>${escapeHtml(a.nome || a.personagem)}</h3>
+       <p>${meu ? "seu" : "de " + escapeHtml(nomeDoDono(a.dono))} · ${estado}</p>` +
+      (meu
+        ? `<button type="button" data-jogar="${escapeHtml(a.personagem)}">Jogar</button>
+           <button type="button" class="fraco" data-tirar="${escapeHtml(a.personagem)}">Tirar da mesa</button>`
+        : "");
+    elModal.mesaChars.appendChild(d);
+  }
+
+  // --- os seus, fora da mesa ---
+  const naMesa = new Set((mesa.assentos || []).map((a) => a.personagem));
+  const fora = (minhas || []).filter((c) => !naMesa.has(c.id));
+  elModal.myChars.innerHTML = "";
+  if (!fora.length) {
+    elModal.myChars.innerHTML =
+      `<p class="sala-lede">Todos os seus personagens já estão à mesa.</p>`;
+  }
+  for (const c of fora) {
+    const d = document.createElement("div");
+    d.className = "char-card";
+    const impede = cheia ? "a mesa está cheia"
+                 : noMeuTeto ? "você já está no seu limite nesta mesa" : null;
+    d.innerHTML =
+      `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3>
+       <p>${escapeHtml(c.location || "Mundo")}</p>
+       <button type="button" data-sentar="${escapeHtml(c.id)}" ${impede ? "disabled" : ""}>Sentar à mesa</button>` +
+      (impede ? `<p class="sala-status">${impede}</p>` : "") +
+      `<button type="button" class="fraco" data-desassociar="${escapeHtml(c.id)}">Desassociar</button>`;
+    elModal.myChars.appendChild(d);
+  }
+
+  // --- o que existe no mundo e não é de ninguém ---
+  elModal.availChars.innerHTML = "";
+  for (const c of disponiveis || []) {
+    const d = document.createElement("div");
+    d.className = "char-card";
+    d.innerHTML =
+      `${charImgHtml(c)}<h3>${escapeHtml(c.name)}</h3>
+       <p>${escapeHtml(c.location || "Mundo")}</p>
+       <button type="button" data-associar="${escapeHtml(c.id)}">Associar a mim</button>`;
+    elModal.availChars.appendChild(d);
+  }
+
+  ligarBotoesDaMesa();
+}
+
+function ligarBotoesDaMesa() {
+  const q = (sel) => [...elModal.select.querySelectorAll(sel)];
+  const erro = (e) => alert(e.message || e);
+
+  q("[data-jogar]").forEach((b) => {
+    b.onclick = () => playCharacter(b.getAttribute("data-jogar"));
+  });
+  q("[data-sentar]").forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        await conectorPost("/sala/entrar", { personagem: b.getAttribute("data-sentar") });
+        _assentados.add(b.getAttribute("data-sentar"));
+      } catch (e) { erro(e); }
+      pintarGestaoDaMesa();
+    };
+  });
+  q("[data-tirar]").forEach((b) => {
+    b.onclick = async () => {
+      const id = b.getAttribute("data-tirar");
+      b.disabled = true;
+      try {
+        await conectorPost("/sala/sair", { personagem: id });
+        _assentados.delete(id);
+      } catch (e) { erro(e); }
+      pintarGestaoDaMesa();
+    };
+  });
+  q("[data-associar]").forEach((b) => {
+    b.onclick = () => apiPost("/api/auth/claim-character",
+                              { character_id: b.getAttribute("data-associar") })
+      .then(pintarGestaoDaMesa).catch(erro);
+  });
+  q("[data-desassociar]").forEach((b) => {
+    b.onclick = () => apiPost("/api/auth/release-character",
+                              { character_id: b.getAttribute("data-desassociar") })
+      .then(pintarGestaoDaMesa).catch(erro);
+  });
 }
 
 window.playCharacter = async function(id) {

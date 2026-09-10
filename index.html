@@ -61,13 +61,19 @@
     </div>
   </div>
 
+  <!-- A GESTÃO DA MESA (spec 072, US4). Não é só "escolher personagem": é ver quem
+       está sentado, sentar os seus, tirar os seus e entrar em jogo com um deles. -->
   <div id="select-screen" class="full-screen-modal" hidden>
     <div class="select-box">
-      <h1>Quem você joga</h1>
-      <p class="sala-lede">Na mesa <strong id="sala-atual-nome">—</strong>.
+      <h1>A mesa</h1>
+      <p class="sala-lede">Você está em <strong id="sala-atual-nome">—</strong>.
+         <span id="sala-lotacao"></span>
          <button type="button" id="trocar-sala" class="link-btn">trocar de mesa</button></p>
 
-      <h2>Meus Personagens</h2>
+      <h2>À mesa agora</h2>
+      <div id="mesa-characters" class="char-grid"></div>
+
+      <h2 style="margin-top: 2rem;">Seus personagens fora da mesa</h2>
       <div id="my-characters" class="char-grid"></div>
 
       <h2 style="margin-top: 2rem;">Personagens Disponíveis</h2>

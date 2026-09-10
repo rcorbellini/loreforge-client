@@ -768,6 +768,7 @@ body {
   font-size: 0.78rem;
   color: var(--ink-dim);
   word-break: break-all;
+  white-space: pre-line;   /* a linha da mesa e a do endereço, uma sobre a outra */
 }
 .link-btn {
   background: none;

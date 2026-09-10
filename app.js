@@ -190,8 +190,10 @@ const el = {
   // e o ⚙ inteiro deixou de existir.
   dotServer: document.getElementById("dot-server"),
   dotMente: document.getElementById("dot-mente"),
+  dotLlm: document.getElementById("dot-llm"),
   statusServer: document.getElementById("status-server"),
   statusMente: document.getElementById("status-mente"),
+  statusLlm: document.getElementById("status-llm"),
   runtimeBanner: document.getElementById("runtime-banner"),
   runtimeMsg: document.getElementById("runtime-msg"),
   runtimeConfig: document.getElementById("runtime-config"),
@@ -1227,12 +1229,16 @@ async function checkConector() {
   try {
     const res = await fetch(conectorBase() + "/estado");
     if (!res.ok) throw new Error(`respondeu ${res.status}`);
+    // o `/estado` já traz de qual Mente esta mesa se serve — aproveita a mesma ida
     const e = await res.json();
     el.runtimeBanner.hidden = true;
-    conectorPersonagem = e.personagem || null;
+    _modeloDaSala = e.modelo || null;
     renderConectorInfo();
+    // O RÓTULO ERA DE OUTRO CONECTOR. Ele dizia "<personagem> · N turnos", campos que o
+    // `/estado` da sala não devolve mais — o processo não serve UM personagem nem tem UM
+    // contador de turnos. Ficava "undefined · undefined turnos" na bolinha.
     const bom = { ok: true,
-                  reason: `${nomeDe(e.personagem)} · ${e.turnos} turnos` };
+                  reason: `${e.sala} · ${e.assentos} à mesa` };
     setDot(el.dotMente, el.statusMente, bom);
     return bom;
   } catch (e) {
@@ -1241,6 +1247,7 @@ async function checkConector() {
       "e a SUA chave - a tela sozinha mostra o mundo, mas ninguem age nele. " +
       `Tentei em ${conectorBase()}.`;
     el.runtimeBanner.hidden = false;
+    _modeloDaSala = null;
     const ruim = { ok: false, reason: e.message };
     setDot(el.dotMente, el.statusMente, ruim);
     return ruim;
@@ -1418,6 +1425,9 @@ async function testConnections() {
   for (const d of [el.dotServer, el.dotMente]) if (d) d.className = "dot checking";
   if (el.statusServer) el.statusServer.textContent = "testando...";
   if (el.statusMente) el.statusMente.textContent = "testando...";
+  if (el.dotLlm) el.dotLlm.className = "dot checking";
+  if (el.statusLlm) el.statusLlm.textContent = "testando...";
+
   const con = await checkConector().catch((e) => ({ ok: false, reason: e.message }));
   setDot(el.dotMente, el.statusMente, con);
   // o mundo só se testa depois de saber QUAL é — e quem diz isso é o conector
@@ -1426,6 +1436,29 @@ async function testConnections() {
     ? await serverCheck()
     : { ok: false, reason: "sem a sala, não dá para saber qual mundo" };
   setDot(el.dotServer, el.statusServer, srv);
+
+  // A MENTE DA MESA. O conector é a única fonte — a tela não fala com modelo nenhum e
+  // não tem como sondar um. `ok: null` é "ainda verificando", e é diferente de falso:
+  // pintar vermelho antes de saber acusaria uma pane que não existe.
+  setDotLlm(con.ok ? _modeloDaSala : null);
+}
+
+// O rótulo do modelo, guardado entre repintadas para a tela não ficar muda enquanto o
+// conector responde.
+let _modeloDaSala = null;
+
+function setDotLlm(m) {
+  if (!el.dotLlm) return;
+  if (!m) {
+    el.dotLlm.className = "dot";
+    el.statusLlm.textContent = "—";
+    return;
+  }
+  el.dotLlm.className = "dot " + (m.ok === null ? "checking" : m.ok ? "ok" : "bad");
+  // o RÓTULO sempre; o motivo só quando ele acrescenta alguma coisa ao rótulo
+  el.statusLlm.textContent = m.ok === false && m.porque
+    ? `${m.rotulo} — ${m.porque}`
+    : (m.rotulo || m.porque || "—");
 }
 
 const elModal = {
@@ -1544,8 +1577,11 @@ function showSalas() {
       .then((r) => r.json())
       .then((e) => {
         d.querySelector("h3").textContent = e.sala || "Sala";
+        // A MENTE DA MESA no cartão: quem escolhe onde sentar escolhe também com que
+        // cabeça o personagem dele vai pensar, e isso não pode ser descoberto só depois.
+        const mente = e.modelo && e.modelo.rotulo ? ` · ${e.modelo.rotulo}` : "";
         d.querySelector(".sala-endereco").textContent =
-          `${sala.endereco} — ${e.assentos} à mesa, ${e.membros} jogador(es)`;
+          `${e.assentos} à mesa, ${e.membros} jogador(es)${mente}\n${sala.endereco}`;
         if (e.sala && e.sala !== cacheado) lembrarSala({ endereco: sala.endereco, nome: e.sala });
       })
       .catch(() => {

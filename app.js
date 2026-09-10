@@ -24,6 +24,8 @@
 // entrar na mesa. Vazio = mesma origem, que continua sendo o certo para quem abre o
 // client servido pelo próprio server.
 let _mundoDaSala = null;
+// se o mundo desta sala exige login. Colhido do `/estado` junto com o endereço.
+let _authAtivo = null;
 
 function serverBase() {
   if (_mundoDaSala !== null) return _mundoDaSala;
@@ -41,6 +43,10 @@ async function sincronizarMundo() {
     if (!r.ok) return serverBase();
     const d = await r.json();
     _mundoDaSala = String(d.mundo || "").replace(/\/$/, "");
+    // o MESMO `/estado` diz se o mundo exige login, e é isso que decide de onde a tela
+    // tira "os seus personagens". Sem colher aqui, o modo legado só descobriria isso
+    // depois do primeiro `checkConector` — tarde demais para a primeira pintura.
+    if (typeof d.authAtivo === "boolean") _authAtivo = d.authAtivo;
     try { localStorage.setItem("loreforge.mundoDaSala", _mundoDaSala); } catch (_) {}
   } catch (_) { /* conector fora do ar: fica com o último que funcionou */ }
   return serverBase();
@@ -1454,7 +1460,6 @@ async function testConnections() {
 // conector responde. `_authAtivo` vem do mesmo `/estado` e decide de onde o trocador
 // tira "os seus personagens" — ver `montarTrocador`.
 let _modeloDaSala = null;
-let _authAtivo = null;
 
 function setDotLlm(m) {
   if (!el.dotLlm) return;
@@ -1662,6 +1667,12 @@ function showSelection() {
 // mesa é pública, como numa roda —, mas sem botão: não é seu para jogar nem para tirar.
 // Esconder os outros faria a mesa parecer vazia e o teto de cadeiras, arbitrário.
 async function pintarGestaoDaMesa() {
+  // herdado de `loadWorld`: avisa no console se o mundo tem arquivo inválido. Nunca
+  // bloqueia — é diagnóstico para quem edita o mundo à mão, não erro de jogo.
+  api("/api/world/health").then((h) => {
+    if (h && !h.ok) console.warn("Loreforge — arquivos inválidos:", h.problems);
+  }).catch(() => {});
+
   const jwt = getJwt();
   let mesa = null, minhas = [], disponiveis = [];
   try {
@@ -1669,7 +1680,12 @@ async function pintarGestaoDaMesa() {
       { headers: jwt ? { Authorization: "Bearer " + jwt } : {} });
     if (r.ok) mesa = await r.json();
   } catch (_) { /* conector fora do ar: a tela diz isso abaixo */ }
-  try { minhas = await api("/api/characters/mine"); } catch (_) {}
+  try {
+    // modo legado (mundo sem login): `/mine` filtra por `owner` e volta vazio — ali a
+    // fonte é o mundo inteiro, senão não haveria como sentar ninguém jogando sozinho.
+    minhas = await api(_authAtivo === false ? "/api/characters"
+                                            : "/api/characters/mine");
+  } catch (_) {}
   try { disponiveis = await api("/api/characters/available"); } catch (_) {}
 
   if (!mesa) {
@@ -1779,7 +1795,6 @@ function ligarBotoesDaMesa() {
       b.disabled = true;
       try {
         await conectorPost("/sala/entrar", { personagem: b.getAttribute("data-sentar") });
-        _assentados.add(b.getAttribute("data-sentar"));
       } catch (e) { erro(e); }
       pintarGestaoDaMesa();
     };
@@ -1790,7 +1805,6 @@ function ligarBotoesDaMesa() {
       b.disabled = true;
       try {
         await conectorPost("/sala/sair", { personagem: id });
-        _assentados.delete(id);
       } catch (e) { erro(e); }
       pintarGestaoDaMesa();
     };
@@ -1813,14 +1827,12 @@ window.playCharacter = async function(id) {
   // sussurrar depois receberia "este personagem não está na sala".
   try {
     await conectorPost("/sala/entrar", { personagem: id });
-    _assentados.add(id);
   } catch (e) {
     // 409 = já está sentado (recarregou a página, por exemplo). Isso não é erro.
     if (!/já está/.test(e.message)) {
       alert("Não consegui entrar na sala com este personagem: " + e.message);
       return;
     }
-    _assentados.add(id);
   }
   elModal.select.hidden = true;
   if (elModal.sala) elModal.sala.hidden = true;
@@ -1832,25 +1844,9 @@ window.playCharacter = async function(id) {
   montarTrocador();
 };
 
-// GARANTIR O ASSENTO, e não só no caminho da tela de salas.
-//
-// O modo LEGADO (mundo sem login) pula a escolha de sala — e deve pular: obrigar
-// pareamento onde não há autenticação tornaria o jogo local mais difícil do que era,
-// que é justamente o que a spec proíbe. Mas ele ainda precisa de um ASSENTO, senão o
-// primeiro sussurro recebe "este personagem não está na sala".
-//
-// Idempotente e lembrado: `/sala/entrar` é chamado uma vez por personagem por sessão de
-// página, e o 409 de "já está sentado" não é erro (recarregar a página cai nele).
-const _assentados = new Set();
-async function garantirAssento(id) {
-  if (!id || _assentados.has(id)) return;
-  _assentados.add(id);
-  try {
-    await conectorPost("/sala/entrar", { personagem: id });
-  } catch (e) {
-    if (!/já está/.test(e.message)) _assentados.delete(id);
-  }
-}
+// `garantirAssento` e o conjunto `_assentados` MORRERAM junto com o atalho de sentar
+// pelo combo: sentar passou a ter um lugar só, a tela da mesa, e lá a recusa aparece
+// com o motivo em vez de ser engolida.
 
 // O TROCADOR RÁPIDO (topo da tela de jogo).
 //
@@ -1901,27 +1897,16 @@ async function montarTrocador() {
     });
   }
 
-  // OS SEUS QUE AINDA NÃO SENTARAM, nesta mesa. Escolher um SENTA — é o atalho que
-  // torna o combo um trocador de verdade em vez de uma lista do que já está pronto.
-  if (mesaAtual) {
-    const naMesa = new Set((mesaAtual.assentos || []).map((a) => a.personagem));
-    let minhas = [];
-    try {
-      // MODO LEGADO (mundo sem login): `/mine` filtra por `owner`, e num mundo sem
-      // autenticação ninguém tem dono — a lista volta vazia e o trocador ficaria mudo,
-      // tirando do jogo solo a troca de personagem que ele sempre teve. Ali a fonte é o
-      // mundo inteiro, que é exatamente o que a tela listava antes da sala.
-      minhas = await api(_authAtivo === false ? "/api/characters"
-                                              : "/api/characters/mine");
-    } catch (_) {}
-    const fora = (minhas || []).filter((c) => !naMesa.has(c.id));
-    if (fora.length) {
-      grupos.push({
-        rotulo: "Seus, fora da mesa (escolher senta)",
-        itens: fora.map((c) => ({ valor: `${atual}|${c.id}`, texto: c.name || c.id })),
-      });
-    }
-  }
+  // O TROCADOR SÓ TROCA — quem senta é a tela da mesa.
+  //
+  // Houve aqui um grupo "seus, fora da mesa (escolher senta)". Era atalho e virou bug:
+  // sentar pode ser RECUSADO (mesa cheia, ou você no seu limite), e o combo engolia a
+  // recusa e trocava a tela assim mesmo — deixando o jogador "jogando" alguém que não
+  // tem cadeira. Um trocador que às vezes não troca de verdade é pior que um que só
+  // oferece o que existe.
+  //
+  // Então este combo lista SÓ o que já está sentado e é seu. Entrar e sair da mesa tem
+  // tela própria, e é lá que a recusa aparece com o motivo.
 
   el.select.innerHTML = "";
   for (const g of grupos) {
@@ -1949,9 +1934,7 @@ async function trocarPeloCombo(valor) {
     await sincronizarMundo();
     ligarAoConector();
   }
-  try {
-    await garantirAssento(personagem);
-  } catch (_) { /* `garantirAssento` já engole o que não é erro de verdade */ }
+  // sem `garantirAssento`: por construção, tudo o que este combo oferece já tem cadeira
   await loadCharacter(personagem);
   await atualizarMesa();
   montarTrocador();
@@ -1997,30 +1980,20 @@ function pintarMesa() {
     : `${(_mesa.assentos || []).length} \u00e0 mesa`;
 }
 
+// MODO LEGADO (mundo sem login). Ele também passa pela MESA agora, e tem de passar:
+// com o trocador listando só quem está sentado, sem a tela da mesa não haveria por onde
+// sentar o segundo personagem — e jogar sozinho perderia a troca que sempre teve.
+//
+// O que ele pula continua sendo o que não existe ali: login e pareamento.
 function showGame() {
   if (elModal.login) elModal.login.hidden = true;
-  if (elModal.select) elModal.select.hidden = true;
-  document.querySelector(".layout").hidden = false;
-  loadWorld();
+  showSelection();
 }
 
-async function loadWorld() {
-  try {
-    api("/api/world/health").then((h) => {
-      if (h && !h.ok) console.warn("Loreforge — arquivos inválidos:", h.problems);
-    }).catch(() => {});
-
-    const characters = await api("/api/characters");
-    if (characters.length) {
-      await garantirAssento(characters[0].id);
-      await loadCharacter(characters[0].id);
-      await atualizarMesa();
-      montarTrocador();
-    }
-  } catch (e) {
-    el.scene.innerHTML = `<p class="detail-empty">Não foi possível falar com o server: ${escapeHtml(e.message)}</p>`;
-  }
-}
+// `loadWorld` MORREU (spec 072). Ela fazia duas coisas: avisar sobre arquivos inválidos
+// no mundo, e sentar o primeiro personagem para o combo ter o que mostrar. A segunda
+// deixou de existir — quem senta é a tela da mesa —, e a primeira mudou de casa: vai
+// junto com a leitura da mesa, que é o momento em que a tela fala com o mundo de novo.
 
 function init() {
   el.form.addEventListener("submit", onAct);

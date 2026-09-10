@@ -9,15 +9,41 @@
 //   · com o MUNDO  — leitura da cena, do inventário, das memórias (GET)
 //   · com o CONECTOR — o sussurro sobe, os beats e a prosa descem (SSE)
 
-// Endereço do server do mundo. Vazio = mesma origem (quando o client é servido
-// pelo próprio server). Ao distribuir o client standalone, defina no ⚙ o endereço
-// do seu server (ex.: http://192.168.0.10:8777). Fica só no navegador.
+// ENDEREÇO DO MUNDO — E ELE VEM DO CONECTOR (spec 072).
+//
+// Era um campo no ⚙, digitado por quem joga. Não podia continuar: numa sala, quem sabe
+// por onde o mundo é alcançável é QUEM HOSPEDA — e o convidado, noutra máquina, não tem
+// como adivinhar o túnel do anfitrião. Pior: o endereço que o conector usa
+// (`localhost:8777`) é justamente o que NÃO serve para o navegador dele.
+//
+// Então o conector publica (`/estado` → `mundo`) e a tela obedece. Uma fonte, e ela é a
+// mesma que já é fonte da sala.
+//
+// O cache existe porque `serverBase()` é chamado em toda requisição e não pode ser
+// assíncrono; ele é preenchido em `sincronizarMundo()`, chamado ao escolher a sala e ao
+// entrar na mesa. Vazio = mesma origem, que continua sendo o certo para quem abre o
+// client servido pelo próprio server.
+let _mundoDaSala = null;
+
 function serverBase() {
+  if (_mundoDaSala !== null) return _mundoDaSala;
   try {
-    return (localStorage.getItem("loreforge.serverBase") || "").replace(/\/$/, "");
+    return (localStorage.getItem("loreforge.mundoDaSala") || "").replace(/\/$/, "");
   } catch (_) {
     return "";
   }
+}
+
+// Pergunta ao conector desta sala por onde ESTA TELA fala com o mundo.
+async function sincronizarMundo() {
+  try {
+    const r = await fetch(conectorBase() + "/estado");
+    if (!r.ok) return serverBase();
+    const d = await r.json();
+    _mundoDaSala = String(d.mundo || "").replace(/\/$/, "");
+    try { localStorage.setItem("loreforge.mundoDaSala", _mundoDaSala); } catch (_) {}
+  } catch (_) { /* conector fora do ar: fica com o último que funcionou */ }
+  return serverBase();
 }
 
 // === AS SALAS (spec 072, US4) ==============================================
@@ -158,16 +184,10 @@ const el = {
   intForm: document.getElementById("int-form"),
   intInput: document.getElementById("int-input"),
   detail: document.getElementById("detail"),
-  settings: document.getElementById("settings"),
-  settingsToggle: document.getElementById("settings-toggle"),
-  settingsSave: document.getElementById("settings-save"),
-  serverBase: document.getElementById("server-base"),
-  // spec 044: os campos de modelo/chave SAÍRAM da tela. Configurar modelo passa
-  // a ser assunto do conector — deixar o formulário aqui manteria a credencial
-  // exatamente no lugar que esta spec existe para esvaziar.
-  conectorBase: document.getElementById("conector-base"),
-  testToggle: document.getElementById("test-toggle"),
-  testConns: document.getElementById("test-conns"),
+  // spec 044: os campos de modelo/chave SAÍRAM da tela — a credencial é do conector.
+  // spec 072: os DOIS ENDEREÇOS saíram também. O do conector virou a sala; o do mundo
+  // passou a vir do conector. Não sobrou configuração nenhuma para esta tela guardar,
+  // e o ⚙ inteiro deixou de existir.
   dotServer: document.getElementById("dot-server"),
   dotMente: document.getElementById("dot-mente"),
   statusServer: document.getElementById("status-server"),
@@ -1197,40 +1217,9 @@ function escapeAttr(s) {
 // para desfazer. Quem configura modelo agora e o conector, na maquina de quem
 // joga (`loreforge --configurar`).
 //
-// Sobraram dois enderecos, e nenhum e segredo: o do MUNDO e o do CONECTOR.
-
-function initSettings() {
-  try {
-    el.serverBase.value = localStorage.getItem("loreforge.serverBase") || "";
-    if (el.conectorBase) {
-      el.conectorBase.value = localStorage.getItem("loreforge.conectorBase") || "";
-    }
-  } catch (_) { /* storage bloqueado: segue com o padrao */ }
-
-  el.settingsToggle.addEventListener("click", () => {
-    el.settings.hidden = !el.settings.hidden;
-    if (!el.settings.hidden) testConnections();
-  });
-  el.testToggle.addEventListener("click", () => {
-    el.settings.hidden = false;
-    testConnections();
-  });
-  el.testConns.addEventListener("click", testConnections);
-
-  el.settingsSave.addEventListener("click", () => {
-    try {
-      localStorage.setItem("loreforge.serverBase", el.serverBase.value.trim());
-      if (el.conectorBase) {
-        localStorage.setItem("loreforge.conectorBase",
-                             el.conectorBase.value.trim());
-      }
-    } catch (_) { /* ignora se o navegador bloquear storage */ }
-    // NAO esconde o painel: quem acabou de mudar um endereco quer VER se pegou.
-    loadWorld();
-    ligarAoConector();
-    testConnections();
-  });
-}
+// `initSettings` MORREU com o ⚙ (spec 072). Ela lia e gravava dois endereços em
+// `localStorage`; hoje um deles é a sala (e a tela de salas o escolhe) e o outro vem do
+// conector. Não há o que inicializar.
 
 // Sem conector nao ha Mente - e a tela precisa DIZER isso, nao adivinhar. Ela
 // continua util em leitura: o mundo esta la, so nao ha quem aja nele.
@@ -1417,15 +1406,26 @@ async function serverCheck() {
     return { ok: false, reason: e.message };
   }
 }
+// AS DUAS BOLINHAS, agora na MESA (spec 072).
+//
+// Elas viviam no ⚙, atrás de um botão que ninguém abre antes de o jogo quebrar. A
+// pergunta que elas respondem — "isso está no ar?" — é da mesa, e se faz ANTES de
+// sentar, não depois de travar.
+//
+// A ORDEM MUDOU junto com o dono: primeiro a SALA, depois o MUNDO DELA. É a ordem da
+// dependência — sem o conector, a tela nem sabe qual é o mundo.
 async function testConnections() {
   for (const d of [el.dotServer, el.dotMente]) if (d) d.className = "dot checking";
-  el.statusServer.textContent = el.statusMente.textContent = "testando...";
-  const [srv, con] = await Promise.all([
-    serverCheck(),
-    checkConector().catch((e) => ({ ok: false, reason: e.message })),
-  ]);
-  setDot(el.dotServer, el.statusServer, srv);
+  if (el.statusServer) el.statusServer.textContent = "testando...";
+  if (el.statusMente) el.statusMente.textContent = "testando...";
+  const con = await checkConector().catch((e) => ({ ok: false, reason: e.message }));
   setDot(el.dotMente, el.statusMente, con);
+  // o mundo só se testa depois de saber QUAL é — e quem diz isso é o conector
+  if (con.ok) await sincronizarMundo();
+  const srv = con.ok
+    ? await serverCheck()
+    : { ok: false, reason: "sem a sala, não dá para saber qual mundo" };
+  setDot(el.dotServer, el.statusServer, srv);
 }
 
 const elModal = {
@@ -1448,9 +1448,6 @@ const elModal = {
   myChars: document.getElementById("my-characters"),
   availChars: document.getElementById("available-characters"),
   logoutBtn: document.getElementById("logout-btn"),
-  pairingKey: document.getElementById("pairing-key"),
-  btnPair: document.getElementById("btn-pair"),
-  pairStatus: document.getElementById("pair-status"),
 };
 
 function showLogin() {
@@ -1561,8 +1558,11 @@ function showSalas() {
   });
 
   elModal.salas.querySelectorAll("[data-entrar]").forEach((b) => {
-    b.onclick = () => {
+    b.onclick = async () => {
       entrarNaSala(b.getAttribute("data-entrar"));
+      // O MUNDO VEM ANTES DA LISTA: `showSelection` já pergunta ao server quais
+      // personagens são seus, e sem saber o endereço ela perguntaria ao lugar errado.
+      await sincronizarMundo();
       ligarAoConector();
       showSelection();
     };
@@ -1719,6 +1719,7 @@ async function pintarGestaoDaMesa() {
   }
 
   ligarBotoesDaMesa();
+  testConnections();
 }
 
 function ligarBotoesDaMesa() {
@@ -1886,36 +1887,20 @@ function init() {
     if (b) return observeEntity(b.dataset.oid, b.dataset.oname);
     if (e.target.closest(".map-btn")) showKnownRoutes();
   });
-  el.runtimeConfig.addEventListener("click", () => el.settings.hidden = false);
+  // Sem conector não há Mente — e o caminho para consertar isso é ESCOLHER OUTRA MESA,
+  // não abrir uma tela de configuração que já não existe.
+  el.runtimeConfig.addEventListener("click", showSalas);
   
   if (elModal.logoutBtn) elModal.logoutBtn.addEventListener("click", () => {
     clearJwt();
     showLogin();
   });
   
-  // O pareamento (spec 056) é direto client→conector: o código só existe na
-  // memória do PRÓPRIO conector (gerado por `--parear` ou pelo painel dele), e
-  // é ele quem confere o JWT com o mundo — o loreforge-server nunca entra
-  // nesse meio, então isto NÃO passa por `apiPost`/`serverBase()`.
-  if (elModal.btnPair) elModal.btnPair.addEventListener("click", () => {
-    const codigo = elModal.pairingKey.value.trim();
-    if (!codigo) return;
-    const jwt = getJwt();
-    if (!jwt) {
-      elModal.pairStatus.textContent = "Faça login antes de parear.";
-      return;
-    }
-    elModal.pairStatus.textContent = "Pareando...";
-    conectorPost("/parear", { codigo, jwt })
-      .then(res => {
-        elModal.pairStatus.textContent = `Pareado como ${res.email}! O conector está vinculado.`;
-      })
-      .catch(e => {
-        elModal.pairStatus.textContent = "Erro: " + e.message;
-      });
-  });
+  // O PAREAMENTO SAIU DAQUI (spec 072): parear virou ENTRAR NUMA SALA, e o formulário
+  // que faz isso é o da tela de salas — endereço + código, os dois juntos, que é o que o
+  // convite de fato é. Um campo de código sem campo de endereço, escondido atrás do ⚙,
+  // nunca disse a quem estava colando ONDE aquilo ia.
 
-  initSettings();
   ligarAoConector();
 
   // A SALA VEM ANTES DO PERSONAGEM (FR-021). Não há caminho que a pule: depois do
@@ -1934,6 +1919,7 @@ function init() {
     try {
       const d = await pareaEEntra(endereco, codigo);
       elModal.salaStatus.textContent = d.aviso || "pronto.";
+      await sincronizarMundo();
       ligarAoConector();
       showSelection();
     } catch (e) {
@@ -1956,7 +1942,10 @@ function init() {
     atualizarMesa();
   });
 
-  api("/api/auth/config").then(cfg => {
+  // O MUNDO VEM DA SALA, então perguntar a ele exige saber a sala primeiro. No boot
+  // isso é uma ida a mais ao conector — e é ela que faz o client standalone funcionar
+  // sem ninguém digitar endereço de server em lugar nenhum.
+  sincronizarMundo().then(() => api("/api/auth/config")).then(cfg => {
     if (cfg.google_client_id) {
       if (getJwt()) showSalas();
       else showLogin();

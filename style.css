@@ -132,66 +132,6 @@ body {
 }
 .settings-toggle:hover { border-color: var(--accent-bright); color: var(--accent-bright); }
 
-.settings {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.8rem;
-  padding: 0.8rem 1rem;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--line);
-  font-size: 0.85rem;
-  color: var(--ink-dim);
-}
-.settings-runtime {
-  flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  color: var(--ink);
-}
-.settings-runtime label {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.35rem;
-  cursor: pointer;
-}
-.settings-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.8rem;
-  flex-basis: 100%;
-}
-.settings-group[hidden] { display: none; }
-.settings label { display: flex; flex-direction: column; gap: 0.25rem; }
-.settings input {
-  background: var(--panel);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.4rem 0.5rem;
-  font-family: inherit;
-  min-width: 16rem;
-}
-.settings input:focus, .act-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.settings button {
-  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
-  color: #1a1712;
-  border: 1px solid var(--line-dark);
-  border-radius: 4px;
-  padding: 0.45rem 1rem;
-  font-family: inherit;
-  font-weight: bold;
-  letter-spacing: 0.03em;
-  cursor: pointer;
-}
-.settings button:hover { filter: brightness(1.08); }
-.settings-note { flex-basis: 100%; font-style: italic; }
 
 /* spec 039 — status de conexão (bolinha verde/vermelha) */
 .conn-status { list-style: none; margin: 0.6rem 0 0; padding: 0; }
@@ -206,38 +146,15 @@ body {
 .dot.bad { background: var(--warn); box-shadow: 0 0 6px rgba(217, 138, 95, 0.6); }
 .dot.checking { background: var(--accent-dim); }
 
+/* O CSS DO ⚙ SAIU COM ELE (spec 072). `.settings*` vestia uma tela de configuração que
+   deixou de existir: o endereço do conector virou a sala, o do mundo passa a vir do
+   conector, e parear virou entrar numa sala. `.conn-status` e `.dot` FICAM — as
+   bolinhas mudaram de casa, não de forma, e agora moram na tela da mesa.
+   `.settings-toggle` também fica: é a classe do botão "Sair" na barra de cima. */
+
 /* spec 039 — marca de que A Mente consultou o livro de regras antes de agir */
 .rule-badge { font-size: 0.9em; opacity: 0.85; margin-right: 0.15em; }
-.settings[hidden] { display: none; }
 
-/* settings em painéis — mesmo acabamento dos painéis da sidebar */
-.settings-panel {
-  flex-basis: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.8rem;
-  margin-bottom: 0;
-}
-.settings h2 {
-  flex-basis: 100%;
-  font-size: 0.85rem;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  margin: 0;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--line);
-}
-.settings-server h2::before { content: "\2609  "; }
-.settings-mente h2::before { content: "\263E  "; }
-.settings-actions {
-  flex-basis: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.8rem;
-}
 
 .runtime-banner {
   display: flex;
@@ -685,10 +602,6 @@ body {
   }
   .char-select select { flex: 1; min-width: 0; }
 
-  .settings { padding: 0.7rem; }
-  .settings-group label { flex: 1 1 100%; }
-  .settings input { min-width: 0; width: 100%; }
-  .settings-runtime { flex-wrap: wrap; row-gap: 0.4rem; }
 
   .runtime-banner { flex-wrap: wrap; row-gap: 0.5rem; }
   .runtime-banner button { margin-left: 0; width: 100%; }

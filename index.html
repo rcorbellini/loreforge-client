@@ -15,8 +15,6 @@
       <select id="character-select"></select>
     </label>
     <button id="logout-btn" class="settings-toggle" type="button" title="Sair (Logout)">Sair</button>
-    <button id="test-toggle" class="settings-toggle" type="button" title="Testar conexões">⚡</button>
-    <button id="settings-toggle" class="settings-toggle" type="button" title="Configurar A Mente">⚙</button>
   </header>
 
   <div id="login-screen" class="full-screen-modal">
@@ -69,6 +67,16 @@
          <span id="sala-lotacao"></span>
          <button type="button" id="trocar-sala" class="link-btn">trocar de mesa</button></p>
 
+      <!-- AS BOLINHAS MORAM AQUI (spec 072). Elas viviam no ⚙, atrás de um botão que
+           ninguém abre antes de o jogo quebrar. A pergunta "isso está no ar?" é da
+           MESA, e é aqui que ela se faz — antes de sentar, não depois de travar. -->
+      <ul class="conn-status">
+        <li><span class="dot" id="dot-mente"></span> Esta sala
+            <span class="status-reason" id="status-mente">—</span></li>
+        <li><span class="dot" id="dot-server"></span> O mundo dela
+            <span class="status-reason" id="status-server">—</span></li>
+      </ul>
+
       <h2>À mesa agora</h2>
       <div id="mesa-characters" class="char-grid"></div>
 
@@ -80,57 +88,19 @@
     </div>
   </div>
 
-  <div id="settings" class="settings" hidden>
-    <section class="panel settings-panel">
-      <h2>Conexões</h2>
-      <button id="test-conns" type="button">Testar conexões</button>
-      <ul class="conn-status">
-        <li><span class="dot" id="dot-server"></span> Server do mundo <span class="status-reason" id="status-server">—</span></li>
-        <li><span class="dot" id="dot-mente"></span> O conector (A Mente) <span class="status-reason" id="status-mente">—</span></li>
-      </ul>
-    </section>
+  <!-- O ⚙ SAIU INTEIRO (spec 072).
+       Ele guardava dois endereços (o do mundo e o do conector) e o pareamento. Os três
+       mudaram de dono: o endereço do CONECTOR é a sala (e a lista de salas é a tela que
+       o escolhe); o endereço do MUNDO passou a vir do próprio conector, que é quem sabe
+       por onde ele é alcançável de fora; e parear virou entrar numa sala. Não sobrou
+       nada para configurar aqui — e uma tela de configuração vazia é pior que nenhuma.
 
-    <section class="panel settings-panel settings-server">
-      <h2>Server do mundo</h2>
-      <div class="settings-group">
-        <label>Endereço do server do mundo
-          <input id="server-base" type="text" placeholder="(vazio = mesma origem)">
-        </label>
-        <span class="settings-note" style="flex-basis:auto">Deixe vazio se abriu pelo próprio server. Preencha (ex.: http://192.168.0.10:8777) para um client standalone.</span>
-      </div>
-    </section>
-
-    <section class="panel settings-panel settings-mente">
-      <h2>O conector — A Mente</h2>
-      <div class="settings-group">
-        <label>Endereço do conector
-          <input id="conector-base" type="text" placeholder="http://127.0.0.1:8899">
-        </label>
-        <span class="settings-note" style="flex-basis:auto">A Mente do seu personagem roda no <em>conector</em>, um programa que você baixa e executa na sua própria máquina — com o seu modelo e a sua chave. Esta tela não fala com modelo nenhum e não guarda credencial alguma: ela mostra a cena e leva o seu sussurro até lá.</span>
-      </div>
-      <span class="settings-note">Você traz o seu modelo — não há fallback. A escolha do modelo muda a riqueza da narrativa, nunca o resultado mecânico (isso é do Árbitro, no server).</span>
-    </section>
-
-    <div class="settings-actions">
-      <button id="settings-save" type="button">Salvar</button>
-      <span class="settings-note" style="flex-basis:auto">🔒 A sua chave de modelo não vive mais aqui: ela fica no conector, na sua máquina. Esta tela guarda só dois endereços.</span>
-    </div>
-
-    <section class="panel settings-panel" style="margin-top: 1rem;">
-      <h2>Pareamento do Conector</h2>
-      <div class="settings-group">
-        <label>Código de Pareamento
-          <input id="pairing-key" type="text" placeholder="XXXX-XXXX">
-        </label>
-        <button id="btn-pair" type="button" style="margin-top:0.5rem">Parear</button>
-        <span id="pair-status" class="settings-note" style="flex-basis:auto; margin-top:0.5rem">Gere o código rodando <code>loreforge --parear</code> no conector.</span>
-      </div>
-    </section>
-  </div>
+       As bolinhas de estado foram para a MESA, que é onde a pergunta "isso está no ar?"
+       de fato se faz. -->
 
   <div id="runtime-banner" class="runtime-banner" hidden>
     <span id="runtime-msg"></span>
-    <button id="runtime-config" type="button">Configurar A Mente</button>
+    <button id="runtime-config" type="button">Escolher a mesa</button>
   </div>
 
   <main class="layout">

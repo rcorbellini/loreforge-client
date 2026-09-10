@@ -20,6 +20,59 @@ function serverBase() {
   }
 }
 
+// === AS SALAS (spec 072, US4) ==============================================
+//
+// Uma SALA é um conector: um endereço mais um código de pareamento. Não há registro em
+// lugar nenhum — a lista mora NESTE navegador, como a lista de servidores de um
+// launcher, e o convite (endereço + código) é passado por fora, que é como já se faz.
+//
+// Um registro de salas no server teria de saber de conectores — exatamente o que a
+// cisão da 044 tirou dele — e não resolveria o que parece resolver: descoberta de um
+// processo atrás de NAT continua exigindo endereço publicado à mão.
+const CHAVE_SALAS = "loreforge.salas";
+const CHAVE_SALA_ATUAL = "loreforge.conectorBase";   // a MESMA de antes: ver `migrarSalas`
+
+function salasConhecidas() {
+  try {
+    const cru = JSON.parse(localStorage.getItem(CHAVE_SALAS) || "[]");
+    return Array.isArray(cru) ? cru.filter((s) => s && s.endereco) : [];
+  } catch (_) { return []; }
+}
+
+function guardarSalas(lista) {
+  try { localStorage.setItem(CHAVE_SALAS, JSON.stringify(lista)); } catch (_) {}
+}
+
+// A MIGRAÇÃO É NATURAL, e é por isso que a chave da sala atual continua sendo
+// `loreforge.conectorBase`: quem já tinha um endereço configurado encontra a primeira
+// sala já na lista, sem reconfigurar nada, e todo o resto do arquivo (que lê
+// `conectorBase()`) segue funcionando sem saber que salas existem.
+function migrarSalas() {
+  const lista = salasConhecidas();
+  let antigo = null;
+  try { antigo = localStorage.getItem(CHAVE_SALA_ATUAL); } catch (_) {}
+  if (antigo && !lista.some((s) => s.endereco === antigo)) {
+    lista.unshift({ nome: "Minha sala", endereco: antigo });
+    guardarSalas(lista);
+  }
+  return lista;
+}
+
+function lembrarSala(sala) {
+  const lista = salasConhecidas().filter((s) => s.endereco !== sala.endereco);
+  lista.unshift(sala);
+  guardarSalas(lista);
+}
+
+function entrarNaSala(endereco) {
+  try { localStorage.setItem(CHAVE_SALA_ATUAL, endereco.replace(/\/$/, "")); } catch (_) {}
+}
+
+function salaAtual() {
+  const e = conectorBase();
+  return salasConhecidas().find((s) => s.endereco.replace(/\/$/, "") === e) || null;
+}
+
 // Endereço do CONECTOR — o processo que roda A Mente na máquina de quem joga.
 // Endereço local de propósito: ele guarda a credencial do modelo e não tem por
 // que estar visível na rede de ninguém.
@@ -310,7 +363,7 @@ async function observeEntity(id, name) {
       `/api/observe?character_id=${encodeURIComponent(actor)}&id=${encodeURIComponent(id)}`
     );
     try {
-      await conectorPost("/observar", { observacao: obs });
+      await conectorPost("/observar", { personagem: currentCharacter, observacao: obs });
     } catch (_) {
       // sem conector, o olhar não fica mudo: mostra o que o mundo mesmo diz.
       // É menos do que a Mente teceria, e é honesto — não inventa vivência.
@@ -1006,7 +1059,16 @@ async function onAct(event) {
     // Volta na hora (202): o turno corre no conector e se conta pelo canal de
     // eventos. Esperar aqui seria uma requisicao pendurada por dezenas de
     // segundos - e foi para nao depender disso que o canal existe.
-    await conectorPost("/sussurro", { texto: text });
+    // spec 072: o conector serve uma SALA — o sussurro precisa dizer DE QUEM é. Sem
+    // isto ele cairia em "o personagem do processo", que não existe mais.
+    const r = await conectorPost("/sussurro",
+                                 { personagem: currentCharacter, texto: text });
+    if (r && r.posicao > 1) {
+      // A ESPERA PRECISA APARECER. Numa mesa serial o turno de outro está correndo, e
+      // silêncio nessa hora se lê como travamento — que é o pior diagnóstico possível.
+      appendLog(currentCharacter, "system",
+                `Você está na fila da mesa (${r.posicao}\u00ba).`);
+    }
   } catch (e) {
     // a trava local só cai aqui: se o sussurro NÃO subiu, não virá `estado`
     // nenhum para destravar, e o botão ficaria preso para sempre.
@@ -1260,6 +1322,27 @@ function ligarAoConector() {
     setBusy(quem, !!d.ocupado);
     renderConectorInfo();
   });
+
+  // A MESA (spec 072). `sala` e `fila` são faixa de MESA: todo mundo vê quem joga e
+  // quem espera, como numa roda. A faixa privada de cada um continua chegando só ao
+  // dono — o conector já filtra, e `appendLog` já guarda por personagem.
+  const daMesa = (d) => {
+    _mesa = { ...(_mesa || {}), ...d };
+    pintarMesa();
+  };
+  ouvir("sala", daMesa);
+  ouvir("fila", daMesa);
+  ouvir("entrou", () => atualizarMesa());
+  ouvir("saiu", () => atualizarMesa());
+  ouvir("autonomia", () => atualizarMesa());
+
+  // EXPULSO. Sem isto, o fluxo simplesmente fecharia e a tela mostraria erro de
+  // conexão — e a pessoa concluiria que o conector caiu (SC-012).
+  ouvir("expulso", (d) => {
+    try { _fonte.close(); } catch (_) {}
+    alert(d.texto || "O anfitrião removeu você desta sala.");
+    showSalas();
+  });
   // O `EventSource` re-tenta sozinho, em laço, quando não alcança. Cada erro
   // disparando um `fetch` virava enxurrada de requisições e engasgava a
   // interface inteira — que foi o "travando" relatado. Uma checagem a cada 5s
@@ -1304,6 +1387,19 @@ async function testConnections() {
 
 const elModal = {
   login: document.getElementById("login-screen"),
+  sala: document.getElementById("sala-screen"),
+  salas: document.getElementById("salas"),
+  salaForm: document.getElementById("sala-form"),
+  salaEndereco: document.getElementById("sala-endereco"),
+  salaCodigo: document.getElementById("sala-codigo"),
+  salaNome: document.getElementById("sala-nome"),
+  salaStatus: document.getElementById("sala-status"),
+  salaAtualNome: document.getElementById("sala-atual-nome"),
+  trocarSala: document.getElementById("trocar-sala"),
+  autoCheck: document.getElementById("auto-check"),
+  autoLabel: document.getElementById("auto-label"),
+  autoMotivo: document.getElementById("auto-motivo"),
+  mesaFila: document.getElementById("mesa-fila"),
   select: document.getElementById("select-screen"),
   myChars: document.getElementById("my-characters"),
   availChars: document.getElementById("available-characters"),
@@ -1339,7 +1435,7 @@ function handleGoogleCredential(response) {
   apiPost("/api/auth/login", { id_token: response.credential })
     .then(data => {
       setJwt(data.jwt);
-      showSelection();
+      showSalas();
     }).catch(e => alert(e.message));
 }
 
@@ -1370,9 +1466,87 @@ async function _apurarSeEhMeu(id) {
 }
 
 
+// A TELA DE SALAS (spec 072, FR-021): não existe caminho para o jogo que a pule.
+function showSalas() {
+  if (!elModal.sala) return showSelection();
+  elModal.login.hidden = true;
+  elModal.select.hidden = true;
+  elModal.sala.hidden = false;
+  document.querySelector(".layout").hidden = true;
+
+  const lista = migrarSalas();
+  elModal.salas.innerHTML = "";
+  if (!lista.length) {
+    elModal.salas.innerHTML =
+      `<p class="sala-lede">Você ainda não conhece nenhuma mesa. Peça o endereço e o
+        código a quem hospeda — ou rode <code>loreforge --parear</code> na sua máquina
+        para hospedar a sua.</p>`;
+  }
+  lista.forEach((sala) => {
+    const d = document.createElement("div");
+    d.className = "char-card";
+    d.innerHTML =
+      `<h3>${escapeHtml(sala.nome || "Sala")}</h3>
+       <p class="sala-endereco">${escapeHtml(sala.endereco)}</p>
+       <button type="button" data-entrar="${escapeHtml(sala.endereco)}">Entrar</button>
+       <button type="button" class="fraco" data-esquecer="${escapeHtml(sala.endereco)}">Esquecer</button>`;
+    elModal.salas.appendChild(d);
+
+    // UMA SALA FORA DO AR CONTINUA NA LISTA (FR-026): sumir com ela puniria o jogador
+    // por o amigo dele ter desligado o computador.
+    fetch(sala.endereco.replace(/\/$/, "") + "/estado")
+      .then((r) => r.json())
+      .then((e) => {
+        const p = d.querySelector(".sala-endereco");
+        p.textContent = `${sala.endereco} — ${e.assentos} à mesa, ${e.membros} jogador(es)`;
+      })
+      .catch(() => {
+        d.classList.add("sala-fora");
+        d.querySelector(".sala-endereco").textContent =
+          `${sala.endereco} — não respondeu`;
+      });
+  });
+
+  elModal.salas.querySelectorAll("[data-entrar]").forEach((b) => {
+    b.onclick = () => {
+      entrarNaSala(b.getAttribute("data-entrar"));
+      ligarAoConector();
+      showSelection();
+    };
+  });
+  elModal.salas.querySelectorAll("[data-esquecer]").forEach((b) => {
+    b.onclick = () => {
+      const alvo = b.getAttribute("data-esquecer");
+      guardarSalas(salasConhecidas().filter((s) => s.endereco !== alvo));
+      showSalas();
+    };
+  });
+}
+
+// CRIAR E ENTRAR SÃO O MESMO ATO do lado da tela: os dois são endereço + código. O que
+// difere é quem roda o processo — e isso a tela não tem como saber nem precisa.
+async function pareaEEntra(endereco, codigo, nome) {
+  const alvo = endereco.replace(/\/$/, "");
+  const jwt = getJwt();
+  if (!jwt) throw new Error("faça login antes de entrar numa sala");
+  const res = await fetch(alvo + "/parear", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codigo, jwt }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.erro || `o conector respondeu ${res.status}`);
+  lembrarSala({ nome: nome || d.email || "Sala", endereco: alvo });
+  entrarNaSala(alvo);
+  return d;
+}
+
 function showSelection() {
   elModal.login.hidden = true;
+  if (elModal.sala) elModal.sala.hidden = true;
   elModal.select.hidden = false;
+  const s = salaAtual();
+  if (elModal.salaAtualNome) {
+    elModal.salaAtualNome.textContent = s ? (s.nome || s.endereco) : conectorBase();
+  }
   document.querySelector(".layout").hidden = true;
   
   Promise.all([
@@ -1400,12 +1574,87 @@ function showSelection() {
   }).catch(e => alert(e.message));
 }
 
-window.playCharacter = function(id) {
+window.playCharacter = async function(id) {
+  // ENTRAR NA SALA É O QUE CRIA O ASSENTO (spec 072, FR-017): é lá que o conector monta
+  // o `Mundo` e a `Mente` deste personagem e confere a posse com o SEU token. Sem isto,
+  // sussurrar depois receberia "este personagem não está na sala".
+  try {
+    await conectorPost("/sala/entrar", { personagem: id });
+    _assentados.add(id);
+  } catch (e) {
+    // 409 = já está sentado (recarregou a página, por exemplo). Isso não é erro.
+    if (!/já está/.test(e.message)) {
+      alert("Não consegui entrar na sala com este personagem: " + e.message);
+      return;
+    }
+    _assentados.add(id);
+  }
   elModal.select.hidden = true;
+  if (elModal.sala) elModal.sala.hidden = true;
   document.querySelector(".layout").hidden = false;
   el.select.innerHTML = `<option value="${id}">${id}</option>`;
   loadCharacter(id);
+  atualizarMesa();
 };
+
+// GARANTIR O ASSENTO, e não só no caminho da tela de salas.
+//
+// O modo LEGADO (mundo sem login) pula a escolha de sala — e deve pular: obrigar
+// pareamento onde não há autenticação tornaria o jogo local mais difícil do que era,
+// que é justamente o que a spec proíbe. Mas ele ainda precisa de um ASSENTO, senão o
+// primeiro sussurro recebe "este personagem não está na sala".
+//
+// Idempotente e lembrado: `/sala/entrar` é chamado uma vez por personagem por sessão de
+// página, e o 409 de "já está sentado" não é erro (recarregar a página cai nele).
+const _assentados = new Set();
+async function garantirAssento(id) {
+  if (!id || _assentados.has(id)) return;
+  _assentados.add(id);
+  try {
+    await conectorPost("/sala/entrar", { personagem: id });
+  } catch (e) {
+    if (!/já está/.test(e.message)) _assentados.delete(id);
+  }
+}
+
+// O ESTADO DA MESA na tela de jogo: o interruptor do dono e a posição na fila.
+let _mesa = null;
+async function atualizarMesa() {
+  try {
+    const jwt = getJwt();
+    const r = await fetch(conectorBase() + "/sala",
+      { headers: jwt ? { Authorization: "Bearer " + jwt } : {} });
+    if (!r.ok) return;
+    _mesa = await r.json();
+  } catch (_) { return; }
+  pintarMesa();
+}
+
+function pintarMesa() {
+  if (!_mesa || !elModal.autoCheck) return;
+  const meu = (_mesa.assentos || []).find((a) => a.personagem === currentCharacter);
+  const barra = elModal.autoCheck.closest(".mesa-barra");
+  if (barra) barra.hidden = !meu;
+  if (!meu) return;
+
+  const a = meu.autonomia || {};
+  // BLOQUEADO PELO ANFITRIÃO: desabilitado e COM O MOTIVO (FR-038). Nunca sumido, nunca
+  // aparentando ligado — a limitação é declarada, que é o que o Princípio VIII exige.
+  elModal.autoCheck.checked = !!(a.permitido && a.ligado);
+  elModal.autoCheck.disabled = !a.permitido;
+  elModal.autoLabel.textContent = a.permitido
+    ? "Deixar agir sozinho"
+    : "Agir sozinho — bloqueado na mesa";
+  elModal.autoMotivo.hidden = !!a.permitido || !a.motivo;
+  elModal.autoMotivo.textContent = a.motivo ? `\u201c${a.motivo}\u201d` : "";
+
+  const naFila = (_mesa.fila || []).find((e) => e.personagem === currentCharacter);
+  elModal.mesaFila.textContent =
+    _mesa.jogando === currentCharacter ? "sua vez, agora"
+    : naFila ? `na fila (${naFila.posicao}\u00ba)`
+    : _mesa.jogando ? `a mesa joga ${nomeDe(_mesa.jogando)}`
+    : `${(_mesa.assentos || []).length} \u00e0 mesa`;
+}
 
 function showGame() {
   if (elModal.login) elModal.login.hidden = true;
@@ -1428,7 +1677,11 @@ async function loadWorld() {
       opt.textContent = c.name + (c.location ? ` — ${c.location}` : "");
       el.select.appendChild(opt);
     });
-    if (characters.length) await loadCharacter(characters[0].id);
+    if (characters.length) {
+      await garantirAssento(characters[0].id);
+      await loadCharacter(characters[0].id);
+      atualizarMesa();
+    }
   } catch (e) {
     el.scene.innerHTML = `<p class="detail-empty">Não foi possível falar com o server: ${escapeHtml(e.message)}</p>`;
   }
@@ -1436,7 +1689,11 @@ async function loadWorld() {
 
 function init() {
   el.form.addEventListener("submit", onAct);
-  el.select.addEventListener("change", () => loadCharacter(el.select.value));
+  el.select.addEventListener("change", async () => {
+    await garantirAssento(el.select.value);
+    await loadCharacter(el.select.value);
+    atualizarMesa();
+  });
   el.scene.addEventListener("click", (e) => {
     const b = e.target.closest(".observe-btn");
     if (b) return observeEntity(b.dataset.oid, b.dataset.oname);
@@ -1474,9 +1731,47 @@ function init() {
   initSettings();
   ligarAoConector();
 
+  // A SALA VEM ANTES DO PERSONAGEM (FR-021). Não há caminho que a pule: depois do
+  // login vai-se para a mesa, e só de lá para o personagem.
+  if (elModal.salaForm) elModal.salaForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const endereco = elModal.salaEndereco.value.trim();
+    const codigo = elModal.salaCodigo.value.trim();
+    if (!endereco || !codigo) {
+      elModal.salaStatus.className = "sala-status ruim";
+      elModal.salaStatus.textContent = "informe o endereço e o código.";
+      return;
+    }
+    elModal.salaStatus.className = "sala-status";
+    elModal.salaStatus.textContent = "entrando…";
+    try {
+      const d = await pareaEEntra(endereco, codigo, elModal.salaNome.value.trim());
+      elModal.salaStatus.textContent = d.aviso || "pronto.";
+      ligarAoConector();
+      showSelection();
+    } catch (e) {
+      elModal.salaStatus.className = "sala-status ruim";
+      elModal.salaStatus.textContent = e.message;
+    }
+  });
+  if (elModal.trocarSala) elModal.trocarSala.addEventListener("click", showSalas);
+
+  // O INTERRUPTOR — a VONTADE do dono, dentro do teto do anfitrião (FR-029).
+  if (elModal.autoCheck) elModal.autoCheck.addEventListener("change", async () => {
+    const querido = elModal.autoCheck.checked;
+    try {
+      await conectorPost("/autonomia",
+                         { personagem: currentCharacter, ligado: querido });
+    } catch (e) {
+      elModal.autoCheck.checked = !querido;   // não fingir que pegou
+      appendLog(currentCharacter, "system", e.message);
+    }
+    atualizarMesa();
+  });
+
   api("/api/auth/config").then(cfg => {
     if (cfg.google_client_id) {
-      if (getJwt()) showSelection();
+      if (getJwt()) showSalas();
       else showLogin();
     } else {
       showGame();

@@ -27,13 +27,49 @@
     </div>
   </div>
 
+  <!-- A SALA VEM ANTES DO PERSONAGEM (spec 072, US4).
+       Uma sala É um conector: um endereço mais um código de pareamento. Não há
+       registro em lugar nenhum — a lista mora neste navegador, como a lista de
+       servidores de um launcher. Quem hospeda passa o convite por fora. -->
+  <div id="sala-screen" class="full-screen-modal" hidden>
+    <div class="select-box">
+      <h1>Escolha a mesa</h1>
+      <p class="sala-lede">Toda partida acontece numa <strong>sala</strong> — um conector
+         rodando na máquina de alguém. Quem hospeda gera o código; todos à mesa
+         dividem a mesma Mente e a mesma fila de turnos.</p>
+
+      <div id="salas" class="char-grid"></div>
+
+      <h2 style="margin-top: 2rem;">Entrar numa sala</h2>
+      <form id="sala-form" class="sala-form">
+        <label>Endereço do conector
+          <input id="sala-endereco" type="text" placeholder="http://127.0.0.1:8899"
+                 autocomplete="off">
+        </label>
+        <label>Código de pareamento
+          <input id="sala-codigo" type="text" placeholder="XXXX-XXXX" autocomplete="off">
+        </label>
+        <label>Nome da mesa (só para você)
+          <input id="sala-nome" type="text" placeholder="Taverna do Porto" autocomplete="off">
+        </label>
+        <button type="submit">Entrar</button>
+        <p id="sala-status" class="sala-status"></p>
+      </form>
+      <p class="sala-nota">Ao entrar, o conector guarda a sua credencial de mundo para
+         poder jogar o seu personagem com a tela fechada. Ela <strong>não expira</strong>:
+         só sai de lá se o anfitrião remover você da sala.</p>
+    </div>
+  </div>
+
   <div id="select-screen" class="full-screen-modal" hidden>
     <div class="select-box">
-      <h1>Seleção de Personagem</h1>
-      
+      <h1>Quem você joga</h1>
+      <p class="sala-lede">Na mesa <strong id="sala-atual-nome">—</strong>.
+         <button type="button" id="trocar-sala" class="link-btn">trocar de mesa</button></p>
+
       <h2>Meus Personagens</h2>
       <div id="my-characters" class="char-grid"></div>
-      
+
       <h2 style="margin-top: 2rem;">Personagens Disponíveis</h2>
       <div id="available-characters" class="char-grid"></div>
     </div>
@@ -102,6 +138,19 @@
                placeholder="O que você faz? (linguagem natural)">
         <button type="submit">Agir</button>
       </form>
+
+      <!-- A MESA E O INTERRUPTOR (spec 072).
+           O interruptor é a VONTADE do dono; o anfitrião tem o TETO. Bloqueado, ele
+           aparece desabilitado COM o motivo — nunca sumido, nunca aparentando ligado
+           (FR-038): uma limitação calada é o que o Princípio VIII proíbe. -->
+      <div class="mesa-barra">
+        <label class="auto-toggle">
+          <input id="auto-check" type="checkbox">
+          <span id="auto-label">Deixar agir sozinho</span>
+        </label>
+        <span id="auto-motivo" class="auto-motivo" hidden></span>
+        <span id="mesa-fila" class="mesa-fila"></span>
+      </div>
     </section>
 
     <aside class="sidebar">

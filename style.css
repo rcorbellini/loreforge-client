@@ -797,6 +797,111 @@ body {
 }
 
 
+/* === A MESA (spec 072) ================================================
+   Sem categoria de raridade nova: uma sala não é "coisa do mundo", é a mesa em
+   que se senta. Ela reusa o cartão de personagem e o dourado do HUD, e o que a
+   distingue é o estado (conectada / fora do ar), nunca um matiz próprio. */
+
+.sala-lede {
+  color: var(--ink-dim);
+  font-size: 0.92rem;
+  margin: 0 0 1rem 0;
+}
+.sala-nota {
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+.sala-form {
+  margin-top: 1rem;
+  max-width: 420px;
+}
+.sala-form label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-dim);
+}
+.sala-form input {
+  display: block;
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  background-color: var(--panel-3);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.sala-form input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.sala-status {
+  min-height: 1.2em;
+  margin: 0.6rem 0 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+.sala-status.ruim { color: var(--warn); }
+
+.char-card.sala-fora { opacity: 0.55; }
+.char-card .sala-endereco {
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  word-break: break-all;
+}
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent-bright);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* A BARRA DA MESA, na tela de jogo: o interruptor do dono e a fila. */
+.mesa-barra {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+.auto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.auto-toggle input { cursor: pointer; }
+/* BLOQUEADO PELO ANFITRIÃO: desabilitado e VISÍVEL, com o motivo ao lado. Some
+   seria pior — o dono precisa saber que existe e por que não pode. */
+.auto-toggle input:disabled,
+.auto-toggle input:disabled + span { cursor: not-allowed; opacity: 0.5; }
+.auto-motivo {
+  color: var(--warn);
+  font-style: italic;
+}
+.mesa-fila {
+  margin-left: auto;
+  color: var(--ink-dim);
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+
+
 /* === COMPROMISSOS (spec 061) ==========================================
    Mesmo molde da lista de memórias — é o que o mantenedor pediu ("semelhante
    a memória"). A diferença é que aqui o jogador ESCREVE, então cada item tem

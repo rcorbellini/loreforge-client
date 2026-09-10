@@ -64,7 +64,8 @@ function migrarSalas() {
   let antigo = null;
   try { antigo = localStorage.getItem(CHAVE_SALA_ATUAL); } catch (_) {}
   if (antigo && !lista.some((s) => s.endereco === antigo)) {
-    lista.unshift({ nome: "Minha sala", endereco: antigo });
+    // sem nome: ele vem do conector no primeiro `/estado` que responder
+    lista.unshift({ endereco: antigo, nomeVisto: null });
     guardarSalas(lista);
   }
   try { localStorage.setItem(CHAVE_MIGRADO, "1"); } catch (_) {}
@@ -81,10 +82,29 @@ function esquecerSala(endereco) {
   }
 }
 
-function lembrarSala(sala) {
-  const lista = salasConhecidas().filter((s) => s.endereco !== sala.endereco);
-  lista.unshift(sala);
+// O NOME DA MESA É DO CONECTOR, e este navegador só o CACHEIA.
+//
+// A primeira versão pedia um "nome da mesa (só para você)" no formulário de entrada, e
+// isso criava duas verdades: quem hospeda batizava a mesa no painel e cada convidado via
+// um nome diferente, escolhido por ele mesmo. É a duplicação que o Princípio I proíbe, e
+// a pior forma dela — a que faz duas pessoas na MESMA mesa discordarem de onde estão.
+//
+// O que fica guardado aqui é o ENDEREÇO (isso é do navegador: é a lista dele) mais o
+// último nome VISTO, e este só para a lista não ficar muda quando a sala não responde.
+function lembrarSala({ endereco, nome }) {
+  const alvo = endereco.replace(/\/$/, "");
+  const antes = salasConhecidas().find((s) => s.endereco.replace(/\/$/, "") === alvo);
+  const lista = salasConhecidas().filter((s) => s.endereco.replace(/\/$/, "") !== alvo);
+  lista.unshift({ endereco: alvo,
+                  // nome novo > nome já cacheado > nada (a lista mostra o endereço)
+                  nomeVisto: nome || (antes && antes.nomeVisto) || null });
   guardarSalas(lista);
+}
+
+// Como esta sala se chama, para a tela. O conector manda; o cache é o que sobra quando
+// ele não responde, e aí a tela DIZ que é a última notícia, não o nome de agora.
+function nomeDaSala(sala) {
+  return (sala && sala.nomeVisto) || null;
 }
 
 function entrarNaSala(endereco) {
@@ -1415,7 +1435,6 @@ const elModal = {
   salaForm: document.getElementById("sala-form"),
   salaEndereco: document.getElementById("sala-endereco"),
   salaCodigo: document.getElementById("sala-codigo"),
-  salaNome: document.getElementById("sala-nome"),
   salaStatus: document.getElementById("sala-status"),
   salaAtualNome: document.getElementById("sala-atual-nome"),
   salaLotacao: document.getElementById("sala-lotacao"),
@@ -1510,25 +1529,34 @@ function showSalas() {
   lista.forEach((sala) => {
     const d = document.createElement("div");
     d.className = "char-card";
+    const cacheado = nomeDaSala(sala);
     d.innerHTML =
-      `<h3>${escapeHtml(sala.nome || "Sala")}</h3>
+      `<h3>${escapeHtml(cacheado || "…")}</h3>
        <p class="sala-endereco">${escapeHtml(sala.endereco)}</p>
        <button type="button" data-entrar="${escapeHtml(sala.endereco)}">Entrar</button>
        <button type="button" class="fraco" data-esquecer="${escapeHtml(sala.endereco)}">Esquecer</button>`;
     elModal.salas.appendChild(d);
 
-    // UMA SALA FORA DO AR CONTINUA NA LISTA (FR-026): sumir com ela puniria o jogador
-    // por o amigo dele ter desligado o computador.
+    // O NOME VEM DO CONECTOR, a cada listagem. Se ele responder, o cache se atualiza —
+    // renomear a mesa no painel aparece aqui sozinho, sem ninguém reconfigurar tela.
+    //
+    // E UMA SALA FORA DO AR CONTINUA NA LISTA (FR-026): sumir com ela puniria o jogador
+    // por o amigo dele ter desligado o computador. Aí a tela mostra o último nome VISTO,
+    // dizendo que é isso — não finge saber o nome de agora.
     fetch(sala.endereco.replace(/\/$/, "") + "/estado")
       .then((r) => r.json())
       .then((e) => {
-        const p = d.querySelector(".sala-endereco");
-        p.textContent = `${sala.endereco} — ${e.assentos} à mesa, ${e.membros} jogador(es)`;
+        d.querySelector("h3").textContent = e.sala || "Sala";
+        d.querySelector(".sala-endereco").textContent =
+          `${sala.endereco} — ${e.assentos} à mesa, ${e.membros} jogador(es)`;
+        if (e.sala && e.sala !== cacheado) lembrarSala({ endereco: sala.endereco, nome: e.sala });
       })
       .catch(() => {
         d.classList.add("sala-fora");
-        d.querySelector(".sala-endereco").textContent =
-          `${sala.endereco} — não respondeu`;
+        d.querySelector("h3").textContent = cacheado || "Sala";
+        d.querySelector(".sala-endereco").textContent = cacheado
+          ? `${sala.endereco} — não respondeu (nome da última vez)`
+          : `${sala.endereco} — não respondeu`;
       });
   });
 
@@ -1549,7 +1577,7 @@ function showSalas() {
 
 // CRIAR E ENTRAR SÃO O MESMO ATO do lado da tela: os dois são endereço + código. O que
 // difere é quem roda o processo — e isso a tela não tem como saber nem precisa.
-async function pareaEEntra(endereco, codigo, nome) {
+async function pareaEEntra(endereco, codigo) {
   const alvo = endereco.replace(/\/$/, "");
   const jwt = getJwt();
   if (!jwt) throw new Error("faça login antes de entrar numa sala");
@@ -1558,7 +1586,10 @@ async function pareaEEntra(endereco, codigo, nome) {
     body: JSON.stringify({ codigo, jwt }) });
   const d = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(d.erro || `o conector respondeu ${res.status}`);
-  lembrarSala({ nome: nome || d.email || "Sala", endereco: alvo });
+  // o nome quem dá é o conector — perguntamos a ele em vez de inventar um aqui
+  let nome = null;
+  try { nome = (await (await fetch(alvo + "/estado")).json()).sala; } catch (_) {}
+  lembrarSala({ endereco: alvo, nome });
   entrarNaSala(alvo);
   return d;
 }
@@ -1570,7 +1601,9 @@ function showSelection() {
   document.querySelector(".layout").hidden = true;
   const s = salaAtual();
   if (elModal.salaAtualNome) {
-    elModal.salaAtualNome.textContent = s ? (s.nome || s.endereco) : conectorBase();
+    // enquanto o conector não responde, o último nome visto; `pintarGestaoDaMesa`
+    // troca pelo nome de agora assim que `/sala` chegar.
+    elModal.salaAtualNome.textContent = nomeDaSala(s) || conectorBase();
   }
   pintarGestaoDaMesa();
 }
@@ -1601,6 +1634,12 @@ async function pintarGestaoDaMesa() {
     elModal.myChars.innerHTML = "";
     elModal.availChars.innerHTML = "";
     return;
+  }
+
+  // O NOME DE AGORA, direto do conector — e o cache local se atualiza junto.
+  if (elModal.salaAtualNome && mesa.nome) {
+    elModal.salaAtualNome.textContent = mesa.nome;
+    lembrarSala({ endereco: conectorBase(), nome: mesa.nome });
   }
 
   const eu = mesa.voce;
@@ -1893,7 +1932,7 @@ function init() {
     elModal.salaStatus.className = "sala-status";
     elModal.salaStatus.textContent = "entrando…";
     try {
-      const d = await pareaEEntra(endereco, codigo, elModal.salaNome.value.trim());
+      const d = await pareaEEntra(endereco, codigo);
       elModal.salaStatus.textContent = d.aviso || "pronto.";
       ligarAoConector();
       showSelection();

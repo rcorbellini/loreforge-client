@@ -1105,12 +1105,20 @@ async function onAct(event) {
   const text = el.input.value.trim();
   if (!text) return;
 
-  // O conector serve UM personagem. Sussurrar olhando outro mandava a ordem para
-  // a Mente errada e a resposta voltava na boca de quem estava na tela.
-  if (conectorPersonagem && conectorPersonagem !== actor) {
+  // A TRAVA DE "O CONECTOR JOGA OUTRO" MORREU COM A SALA (spec 072).
+  //
+  // Ela existia porque o conector servia UM personagem: sussurrar olhando outro mandava
+  // a ordem para a Mente errada. Numa mesa, TODO assento seu é jogável — e a variável
+  // que ela usava (`conectorPersonagem`) passou a ser "quem jogou o último turno",
+  // inclusive de OUTRO JOGADOR. Ou seja: depois do turno do personagem de um colega, o
+  // seu campo de sussurro travava. Era bug, não guarda.
+  //
+  // Quem recusa de verdade é o conector (`G-POSSE`), e antes de qualquer chamada de
+  // modelo. O que a tela faz aqui é só não mandar o que já sabe que não vai passar.
+  if (_mesa && _mesa.assentos && !_mesa.assentos.some(
+        (a) => a.personagem === actor && a.dono === _mesa.voce)) {
     appendLog(actor, "system",
-      `A Mente conectada joga ${nomeDe(conectorPersonagem)}, não ${nomeDe(actor)}. ` +
-      `Selecione-o para agir, ou aponte o conector para este personagem.`);
+      `${nomeDe(actor)} não está na mesa como seu — sente-o para agir.`);
     return;
   }
   if (session(actor).busy) return;   // já há turno correndo: não enfileira
@@ -1233,6 +1241,7 @@ async function checkConector() {
     const e = await res.json();
     el.runtimeBanner.hidden = true;
     _modeloDaSala = e.modelo || null;
+    _authAtivo = typeof e.authAtivo === "boolean" ? e.authAtivo : _authAtivo;
     renderConectorInfo();
     // O RÓTULO ERA DE OUTRO CONECTOR. Ele dizia "<personagem> · N turnos", campos que o
     // `/estado` da sala não devolve mais — o processo não serve UM personagem nem tem UM
@@ -1261,7 +1270,6 @@ let _vivaNarracao = null;
 let _vivaIntencao = null;
 // QUEM o conector joga. Um conector serve UM personagem — a tela deixa você
 // PASSEAR por todos, e essa diferença precisa estar visível, não implícita.
-let conectorPersonagem = null;
 let _ultimaChecagem = 0;
 
 // O nome de exibição de um personagem, tirado da própria lista já carregada.
@@ -1274,18 +1282,18 @@ function nomeDe(id) {
 // Diz, na cara do jogador, quem a Mente conectada está jogando — e avisa quando
 // ele está olhando outro. Sem isso, sussurrar parecia funcionar e a resposta
 // aparecia noutro lugar.
+// Pelo mesmo motivo da trava acima: o campo só fica mudo quando o personagem na tela
+// NÃO é um assento seu. Ele não tem mais nada a ver com "quem o conector joga" — o
+// conector joga a mesa inteira.
 function renderConectorInfo() {
-  const fora = conectorPersonagem && currentCharacter
-               && conectorPersonagem !== currentCharacter;
-  if (el.input) {
-    el.input.disabled = !!fora;
-    el.input.placeholder = fora
-      ? `A Mente conectada joga ${nomeDe(conectorPersonagem)} — selecione-o para agir`
-      : "O que ele faz?";
-  }
-  if (el.statusMente && conectorPersonagem) {
-    el.statusMente.title = `o conector joga ${nomeDe(conectorPersonagem)}`;
-  }
+  if (!el.input) return;
+  const meu = !currentCharacter || !_mesa || !_mesa.assentos
+    || _mesa.assentos.some((a) => a.personagem === currentCharacter
+                                  && a.dono === _mesa.voce);
+  el.input.disabled = !meu;
+  el.input.placeholder = meu
+    ? "O que ele faz?"
+    : `${nomeDe(currentCharacter)} não é seu nesta mesa`;
 }
 
 function ligarAoConector() {
@@ -1309,7 +1317,7 @@ function ligarAoConector() {
   // `appendLog` já guarda por personagem e só desenha se for o da tela: passando
   // o dono certo, o log do Coppo continua crescendo enquanto você vê a Nerissa, e
   // está lá quando você voltar.
-  const dono = (d) => d.personagem || conectorPersonagem || currentCharacter;
+  const dono = (d) => d.personagem || currentCharacter;
 
   const ouvir = (nome, fn) => _fonte.addEventListener(nome, (ev) => {
     let d = {};
@@ -1357,7 +1365,6 @@ function ligarAoConector() {
   });
 
   ouvir("estado", (d, quem) => {
-    if (d.personagem) conectorPersonagem = d.personagem;
     setBusy(quem, !!d.ocupado);
     renderConectorInfo();
   });
@@ -1371,8 +1378,8 @@ function ligarAoConector() {
   };
   ouvir("sala", daMesa);
   ouvir("fila", daMesa);
-  ouvir("entrou", () => atualizarMesa());
-  ouvir("saiu", () => atualizarMesa());
+  ouvir("entrou", () => { atualizarMesa(); montarTrocador(); });
+  ouvir("saiu", () => { atualizarMesa(); montarTrocador(); });
   ouvir("autonomia", () => atualizarMesa());
 
   // EXPULSO. Sem isto, o fluxo simplesmente fecharia e a tela mostraria erro de
@@ -1444,8 +1451,10 @@ async function testConnections() {
 }
 
 // O rótulo do modelo, guardado entre repintadas para a tela não ficar muda enquanto o
-// conector responde.
+// conector responde. `_authAtivo` vem do mesmo `/estado` e decide de onde o trocador
+// tira "os seus personagens" — ver `montarTrocador`.
 let _modeloDaSala = null;
+let _authAtivo = null;
 
 function setDotLlm(m) {
   if (!el.dotLlm) return;
@@ -1816,9 +1825,11 @@ window.playCharacter = async function(id) {
   elModal.select.hidden = true;
   if (elModal.sala) elModal.sala.hidden = true;
   document.querySelector(".layout").hidden = false;
-  el.select.innerHTML = `<option value="${id}">${id}</option>`;
+  // a lista quem monta é `montarTrocador` (mesas × seus personagens); pôr uma opção
+  // solta aqui faria o combo piscar com um item só antes de virar a lista de verdade
   loadCharacter(id);
   atualizarMesa();
+  montarTrocador();
 };
 
 // GARANTIR O ASSENTO, e não só no caminho da tela de salas.
@@ -1841,6 +1852,111 @@ async function garantirAssento(id) {
   }
 }
 
+// O TROCADOR RÁPIDO (topo da tela de jogo).
+//
+// O combo do topo listava "os personagens do mundo" — herança do tempo em que a tela
+// escolhia quem jogar e o conector obedecia. Numa mesa isso é a pergunta errada: o que
+// o jogador quer no meio do jogo é pular entre OS SEUS, e eles podem estar em mesas
+// diferentes.
+//
+// Então ele passa a listar MESA POR MESA, e dentro de cada uma só os assentos DELE —
+// mais um grupo final com os seus que ainda não sentaram, que sentam ao serem
+// escolhidos. Trocar de mesa pelo combo troca o conector, o mundo e o canal de eventos
+// junto: é a mesma coisa que passar pela tela de salas, sem passar por ela.
+//
+// O valor de cada opção é `endereço|personagem` — a mesa faz parte da identidade da
+// escolha, porque o mesmo id de personagem pode estar em mundos diferentes.
+async function montarTrocador() {
+  if (!el.select) return;
+  const jwt = getJwt();
+  const atual = conectorBase();
+  const salas = salasConhecidas();
+  const grupos = [];
+
+  // as mesas, em paralelo: uma que não responde simplesmente não entra na lista —
+  // oferecer um personagem numa sala fora do ar seria oferecer um clique que falha.
+  const lidas = await Promise.all(salas.map(async (sala) => {
+    const base = sala.endereco.replace(/\/$/, "");
+    try {
+      const r = await fetch(base + "/sala",
+        { headers: jwt ? { Authorization: "Bearer " + jwt } : {} });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { base, nome: d.nome || base, mesa: d };
+    } catch (_) { return null; }
+  }));
+
+  let mesaAtual = null;
+  for (const lida of lidas) {
+    if (!lida) continue;
+    if (lida.base === atual) mesaAtual = lida.mesa;
+    const meus = (lida.mesa.assentos || [])
+      .filter((a) => a.dono === lida.mesa.voce);
+    if (!meus.length) continue;
+    grupos.push({
+      rotulo: lida.nome + (lida.base === atual ? " (esta mesa)" : ""),
+      itens: meus.map((a) => ({
+        valor: `${lida.base}|${a.personagem}`,
+        texto: a.nome || a.personagem })),
+    });
+  }
+
+  // OS SEUS QUE AINDA NÃO SENTARAM, nesta mesa. Escolher um SENTA — é o atalho que
+  // torna o combo um trocador de verdade em vez de uma lista do que já está pronto.
+  if (mesaAtual) {
+    const naMesa = new Set((mesaAtual.assentos || []).map((a) => a.personagem));
+    let minhas = [];
+    try {
+      // MODO LEGADO (mundo sem login): `/mine` filtra por `owner`, e num mundo sem
+      // autenticação ninguém tem dono — a lista volta vazia e o trocador ficaria mudo,
+      // tirando do jogo solo a troca de personagem que ele sempre teve. Ali a fonte é o
+      // mundo inteiro, que é exatamente o que a tela listava antes da sala.
+      minhas = await api(_authAtivo === false ? "/api/characters"
+                                              : "/api/characters/mine");
+    } catch (_) {}
+    const fora = (minhas || []).filter((c) => !naMesa.has(c.id));
+    if (fora.length) {
+      grupos.push({
+        rotulo: "Seus, fora da mesa (escolher senta)",
+        itens: fora.map((c) => ({ valor: `${atual}|${c.id}`, texto: c.name || c.id })),
+      });
+    }
+  }
+
+  el.select.innerHTML = "";
+  for (const g of grupos) {
+    const og = document.createElement("optgroup");
+    og.label = g.rotulo;
+    for (const it of g.itens) {
+      const o = document.createElement("option");
+      o.value = it.valor;
+      o.textContent = it.texto;
+      og.appendChild(o);
+    }
+    el.select.appendChild(og);
+  }
+  if (currentCharacter) el.select.value = `${atual}|${currentCharacter}`;
+  // se o valor não existe na lista (personagem de outro dono, por exemplo), o `select`
+  // fica sem seleção — melhor do que apontar para alguém que não é para ser jogado
+}
+
+// Trocar por aqui pode significar trocar de MESA, e aí é o conector inteiro que muda.
+async function trocarPeloCombo(valor) {
+  const [base, personagem] = String(valor || "").split("|");
+  if (!base || !personagem) return;
+  if (base.replace(/\/$/, "") !== conectorBase()) {
+    entrarNaSala(base);
+    await sincronizarMundo();
+    ligarAoConector();
+  }
+  try {
+    await garantirAssento(personagem);
+  } catch (_) { /* `garantirAssento` já engole o que não é erro de verdade */ }
+  await loadCharacter(personagem);
+  await atualizarMesa();
+  montarTrocador();
+}
+
 // O ESTADO DA MESA na tela de jogo: o interruptor do dono e a posição na fila.
 let _mesa = null;
 async function atualizarMesa() {
@@ -1852,6 +1968,7 @@ async function atualizarMesa() {
     _mesa = await r.json();
   } catch (_) { return; }
   pintarMesa();
+  renderConectorInfo();
 }
 
 function pintarMesa() {
@@ -1894,17 +2011,11 @@ async function loadWorld() {
     }).catch(() => {});
 
     const characters = await api("/api/characters");
-    el.select.innerHTML = "";
-    characters.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = c.name + (c.location ? ` — ${c.location}` : "");
-      el.select.appendChild(opt);
-    });
     if (characters.length) {
       await garantirAssento(characters[0].id);
       await loadCharacter(characters[0].id);
-      atualizarMesa();
+      await atualizarMesa();
+      montarTrocador();
     }
   } catch (e) {
     el.scene.innerHTML = `<p class="detail-empty">Não foi possível falar com o server: ${escapeHtml(e.message)}</p>`;
@@ -1913,11 +2024,7 @@ async function loadWorld() {
 
 function init() {
   el.form.addEventListener("submit", onAct);
-  el.select.addEventListener("change", async () => {
-    await garantirAssento(el.select.value);
-    await loadCharacter(el.select.value);
-    atualizarMesa();
-  });
+  el.select.addEventListener("change", () => trocarPeloCombo(el.select.value));
   el.scene.addEventListener("click", (e) => {
     const b = e.target.closest(".observe-btn");
     if (b) return observeEntity(b.dataset.oid, b.dataset.oname);

@@ -110,6 +110,20 @@ body {
 }
 
 .char-select { color: var(--ink-dim); font-size: 0.9rem; }
+/* o trocador agrupa por MESA — o rótulo do grupo é o nome dela, e precisa se
+   distinguir dos personagens sem virar outro elemento de interface */
+.char-select optgroup {
+  color: var(--accent-dim);
+  font-style: normal;
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  background: var(--panel);
+}
+.char-select optgroup option {
+  color: var(--ink);
+  font-variant: normal;
+  letter-spacing: normal;
+}
 .char-select select {
   background: var(--panel-2);
   color: var(--ink);

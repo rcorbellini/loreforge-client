@@ -806,7 +806,22 @@ if (el.intForm) {
 }
 
 function renderMemories(memories) {
+  // O PAINEL MOSTRA O QUE ESTÁ NA CABEÇA DELE, não o que ele alcançaria (17/09).
+  //
+  // Desde que o `get_context` passou a entregar o ALCANCE inteiro
+  // (`docs/fluxo-do-contrato.md` § "O princípio, afiado"), esta lista recebe também
+  // as VENCIDAS — 299 das 809 da `mira-vigia-da-praca`. Sem este filtro o painel
+  // passaria a mostrar as 809, com a vencida indistinguível da viva: o contrato ficou
+  // mais completo e a tela mentiria mais.
+  //
+  // O cliente é uma camada de APRESENTAÇÃO como o conector, e a decisão é dele. Aqui
+  // ela é conservadora de propósito — mostrar exatamente o que se mostrava antes. O
+  // que fazer com a vencida (mostrá-la apagada? atrás de um "lembrar mais"?) é
+  // desenho de tela, e desenho de tela se decide vendo.
+  //
+  // `estado` ausente = contrato antigo, que já vinha filtrado pelo servidor.
   const list = (memories || [])
+    .filter((m) => !m || !m.estado || m.estado === "viva")
     .slice()
     .sort((a, b) => (a.timestamp_start || 0) - (b.timestamp_start || 0)); // cronológica
   el.memories.innerHTML = "";

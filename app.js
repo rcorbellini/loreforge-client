@@ -203,6 +203,21 @@ const el = {
   runtimeBanner: document.getElementById("runtime-banner"),
   runtimeMsg: document.getElementById("runtime-msg"),
   runtimeConfig: document.getElementById("runtime-config"),
+  // O BOTTOM SHEET (spec 074, 2026-09-26; sidebar aposentada 2026-09-29) —
+  // ver abrirBottomSheetPersonagem(). Você/Pertences/Memórias/Compromissos e
+  // `#detail` moram dentro dele agora, sob `#sheet-paineis`.
+  sheetBackdrop: document.getElementById("sheet-backdrop"),
+  bottomSheet: document.getElementById("bottom-sheet"),
+  sheetClose: document.getElementById("sheet-close"),
+  sheetAvatar: document.getElementById("sheet-avatar"),
+  sheetNome: document.getElementById("sheet-nome"),
+  sheetBody: document.getElementById("sheet-body"),
+  sheetPaineis: document.getElementById("sheet-paineis"),
+  sheetSemJogo: document.getElementById("sheet-sem-jogo"),
+  // A IMAGEM CHEIA (achado 2026-09-29) — ver abrirImagemCheia().
+  imagemCheia: document.getElementById("imagem-cheia"),
+  imagemCheiaImg: document.getElementById("imagem-cheia-img"),
+  imagemCheiaFechar: document.getElementById("imagem-cheia-fechar"),
 };
 
 let currentCharacter = null;
@@ -424,8 +439,7 @@ function obsBtnEl(id, name) {
 async function observeEntity(id, name) {
   const actor = currentCharacter;
   if (!actor || !id) return;
-  const who = currentSelfName || "Você";
-  appendLog(actor, "you", `${who}: observa ${name || id}`);
+  appendLog(actor, "you", `Observa ${name || id}`);
   // Reconhecer (spec 018) é NARRADO — o que se vê tecido com a vivência. Narrar
   // é trabalho da Mente, e a Mente não mora mais aqui: o pedido vai ao conector,
   // e a prosa volta pelo canal como qualquer outra.
@@ -924,12 +938,16 @@ function renderDetail(d) {
 // dono, não para a tela do personagem que você está vendo agora.
 function appendLog(charId, kind, text, badge) {
   const s = session(charId);
-  s.entries.push({ kind, text, badge: badge || null });
+  s.entries.push({ kind, text, badge: badge || null, ts: Date.now() });
   if (s.entries.length > LOG_MAX_ENTRIES) {
     s.entries.splice(0, s.entries.length - LOG_MAX_ENTRIES);
   }
   saveEntries(charId);
-  if (charId === currentCharacter) renderLogEntry(kind, text, badge);
+  // A TIMELINE É DA MESA (spec 074, chat de grupo — 2026-09-23): todo mundo
+  // sentado aparece, não só quem você tem selecionado agora. Antes só
+  // desenhava se `charId === currentCharacter` — era a aba privada por
+  // personagem; virou grupo, então todo lançamento desenha.
+  renderLogEntry(charId, kind, text, badge);
 }
 
 // Desenha o mapa que o personagem traz na cabeça como árvore textual. O mundo
@@ -959,8 +977,7 @@ function mapaEmArvore(mapa) {
 async function showKnownRoutes() {
   const actor = currentCharacter;
   if (!actor) return;
-  const who = currentSelfName || "Você";
-  appendLog(actor, "you", `${who}: recorda os caminhos que conhece`);
+  appendLog(actor, "you", "Recorda os caminhos que conhece");
   try {
     const mapa = await api(
       `/api/known_routes?character_id=${encodeURIComponent(actor)}`
@@ -980,61 +997,261 @@ async function showKnownRoutes() {
   }
 }
 
-function renderLogEntry(kind, text, badge) {
+// A DIREITA É SÓ O QUE VOCÊ DIGITOU (spec 074, achado 2026-09-25) — "you" é
+// sempre a sua entrada (sussurro, observar, recordar caminhos: tudo que o
+// PLAYER iniciou), nunca a ação/fala de um personagem, mesmo o seu. Tudo que
+// é resposta — beat, narração solta (ex.: observar, que não passa pelo
+// balão de turno) — fica à esquerda, atribuído a quem falou.
+const _KINDS_DE_ENTRADA = new Set(["you"]);
+const _KINDS_DE_SAIDA = new Set(["beat", "narration"]);
+
+function renderLogEntry(charId, kind, text, badge, paralelo) {
   const entry = document.createElement("div");
-  entry.className = "entry";
-  // spec 043: o marcador de "consultou as regras" saiu junto com o livro de
-  // regras. Ele era um sinal FALSO - vinha de uma funcao `async`, entao era uma
-  // Promise, entao era sempre truthy: o selo aparecia em TODO turno. `badge`
-  // fica no lugar para quem quiser marcar outra coisa depois.
-  const mark = "";
-  entry.innerHTML = `${mark}<span class="${kind}">${escapeHtml(text)}</span>`;
+  const kindBase = (kind || "").split(" ")[0];   // "beat falhou" -> "beat"
+  if (_KINDS_DE_ENTRADA.has(kindBase)) {
+    // AVATAR FORA do balão (achado 2026-09-24: por dentro parecia que o
+    // balão "nascia" dele) — `.entry` é a linha (avatar + balão lado a
+    // lado); o balão em si é o `.bolha` de dentro. Ordem no DOM
+    // bolha-depois-avatar: como a linha inteira alinha à direita, o avatar
+    // sobra na BORDA de fora (a direita), do jeito que um chat mostra.
+    const cor = corDoPersonagem(charId);
+    entry.className = "entry minha";
+    entry.innerHTML =
+      `<div class="bolha minha">` +
+        `<span class="bolha-nome">` +
+          `<span class="bolha-jogador">${escapeHtml(nomeDoJogador(charId))}</span> → ` +
+          `<span class="bolha-personagem ${cor}">${escapeHtml(nomeNaMesa(charId))}</span>` +
+        `</span>` +
+        `<span class="${kind}">${escapeHtml(text)}</span>` +
+      `</div>` +
+      avatarJogadorHtml(charId);
+    const crachaPersonagem = entry.querySelector(".bolha-avatar-combo .badge");
+    if (crachaPersonagem) crachaPersonagem.onclick = () => abrirBottomSheetPersonagem(charId);
+  } else if (_KINDS_DE_SAIDA.has(kindBase)) {
+    const cor = corDoPersonagem(charId);
+    entry.className = "entry deles";
+    // Reload (histórico persistido): mesmo "enquanto isso" separado que o
+    // balão ao vivo já mostra — `paralelo` é campo PRÓPRIO da entrada
+    // persistida (achado 2026-09-29, corrigido no mesmo dia), não precisa
+    // de recorte nenhum aqui.
+    let corpoHtml = `<span class="${kind}">${escapeHtml(text)}</span>`;
+    if (kindBase === "narration" && paralelo) {
+      corpoHtml += `<hr class="bolha-divisor">` +
+        `<p class="bolha-paralelo">${escapeHtml(paralelo)}</p>`;
+    }
+    entry.innerHTML =
+      avatarHtml(charId) +
+      `<div class="bolha deles">` +
+        `<span class="bolha-nome ${cor}">${escapeHtml(nomeNaMesa(charId))}</span>` +
+        corpoHtml +
+      `</div>`;
+    const av = entry.querySelector(".bolha-avatar");
+    if (av) av.onclick = () => abrirBottomSheetPersonagem(charId);
+  } else {
+    // spec 043: o marcador de "consultou as regras" saiu junto com o livro de
+    // regras. Ele era um sinal FALSO - vinha de uma funcao `async`, entao era
+    // uma Promise, entao era sempre truthy: o selo aparecia em TODO turno.
+    // `badge` fica no lugar para quem quiser marcar outra coisa depois.
+    const mark = "";
+    entry.className = "entry";
+    entry.innerHTML = `${mark}<span class="${kind}">${escapeHtml(text)}</span>`;
+  }
   el.log.appendChild(entry);
   el.log.scrollTop = el.log.scrollHeight;
 }
 
+// A TIMELINE DA MESA INTEIRA (spec 074, chat de grupo — 2026-09-23). O
+// argumento `charId` sobrevive só por compatibilidade de chamada (quem
+// entrou na tela, gatilho do reload) — o que se desenha é o que TODOS os
+// assentos já disseram, intercalado por horário, não só o de um personagem.
+// Trocar de personagem (a dropdown "Jogando: X") muda pra quem você FALA,
+// não o que você VÊ — como um grupo de chat, não uma DM.
 function renderLog(charId) {
   el.log.innerHTML = "";
-  for (const e of session(charId).entries) renderLogEntry(e.kind, e.text, e.badge);
+  const participantes = (_mesa && _mesa.assentos || []).map((a) => a.personagem);
+  if (!participantes.length && charId) participantes.push(charId);
+  const combinado = [];
+  for (const p of participantes) {
+    for (const e of session(p).entries) combinado.push({ ...e, personagem: p });
+  }
+  combinado.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  for (const e of combinado) renderLogEntry(e.personagem, e.kind, e.text, e.badge, e.paralelo);
 }
 
-// spec 043: uma entrada de log que CRESCE — a narração aparece palavra a palavra
-// conforme A Mente a gera, em vez de um vazio até o fim. Só existe na tela; o log
-// persistido (`appendLog`) recebe o texto final UMA vez, no `fim()`.
+// UM BALÃO POR TURNO (spec 074, "estilo Claude Code" — 2026-09-25).
 //
-// Se o personagem em foco mudar no meio, a escrita continua no dono correto: o
-// `charId` é fixado aqui, e o DOM só é tocado enquanto ele estiver em foco.
-function abrirEntradaViva(charId, kind) {
-  let texto = "";
-  let span = null;
-  if (charId === currentCharacter) {
-    const entry = document.createElement("div");
-    entry.className = "entry";
-    span = document.createElement("span");
-    span.className = kind;
-    entry.appendChild(span);
-    el.log.appendChild(entry);
-  }
-  return {
-    escrever(pedaco) {
-      texto += pedaco;
-      if (span && charId === currentCharacter) {
-        span.textContent = texto;
-        el.log.scrollTop = el.log.scrollHeight;
+// Antes: uma bolha por tentativa + uma bolha por narração, soltas na
+// timeline. Agora: UMA bolha por vez de um personagem, que nasce no
+// primeiro sinal de atividade dele (rascunho, pensamento ou a 1ª tentativa —
+// o que chegar primeiro) e cresce por DENTRO — um `<details>` colapsável por
+// tentativa (clique mostra o comando e o retorno, igual um tool call do
+// Claude Code) e a narração ao final, no mesmo balão. Fecha (para o
+// relógio) quando a narração consolida OU `estado: ocupado:false` chega —
+// o que vier primeiro, e é idempotente (fechar duas vezes não faz nada).
+const _turnos = new Map();   // personagem -> handle do turno aberto
+
+function abrirTurno(personagem) {
+  // AVATAR FORA do balão, na linha (`.entry`), não dentro dele (achado
+  // 2026-09-24) — mesma estrutura de `renderLogEntry`: `.entry` é a linha
+  // (avatar + balão lado a lado, avatar primeiro pro "deles" ficar na borda
+  // esquerda), `.bolha` de dentro é o cartão em si.
+  const entry = document.createElement("div");
+  entry.className = "entry deles turno turno-aberto";
+  const avatar = document.createElement("span");
+  avatar.innerHTML = avatarHtml(personagem);   // já escapado, ver avatarHtml
+  const avatarEl = avatar.firstElementChild;
+  avatarEl.onclick = () => abrirBottomSheetPersonagem(personagem);
+  entry.appendChild(avatarEl);
+  const bolha = document.createElement("div");
+  bolha.className = "bolha deles";
+  entry.appendChild(bolha);
+  const cabecalho = document.createElement("span");
+  cabecalho.className = `bolha-nome ${corDoPersonagem(personagem)}`;
+  cabecalho.appendChild(document.createTextNode(nomeNaMesa(personagem) + " "));
+  const tempo = document.createElement("span");
+  tempo.className = "bolha-tempo";
+  tempo.textContent = "(0s)";
+  cabecalho.appendChild(tempo);
+  bolha.appendChild(cabecalho);
+  // ONDE ELE ESTÁ (achado 2026-09-29) — nasce vazio/escondido; só aparece
+  // quando o "local" chegar (`handle.local`), o que nem sempre acontece
+  // (personagem na raiz do mundo, sem ancestrais a mostrar).
+  const localEl = document.createElement("span");
+  localEl.className = "bolha-local";
+  localEl.hidden = true;
+  bolha.appendChild(localEl);
+  const corpo = document.createElement("div");
+  corpo.className = "bolha-corpo";
+  bolha.appendChild(corpo);
+  el.log.appendChild(entry);
+  el.log.scrollTop = el.log.scrollHeight;
+
+  const iniciou = Date.now();
+  const intervalo = setInterval(() => {
+    tempo.textContent = `(${Math.round((Date.now() - iniciou) / 1000)}s)`;
+  }, 1000);
+  const passos = new Map();   // toolCallId -> {det, corpoPasso}
+  let paraleloTexto = null;   // "enquanto isso" — guardado até narrarFinal() desenhar
+
+  const handle = {
+    // "ENQUANTO ISSO, AO REDOR" (achado 2026-09-29, corrigido no mesmo dia):
+    // antes vinha embutido na PROSA da narração (a Mente tinha de escrever
+    // um marcador que a tela reconhecia por regex — nem sempre escrevia, e
+    // saía tudo junto, sem separação). Agora chega como evento PRÓPRIO
+    // (`_meta.paralelo`), sempre ANTES da narração no tempo — só guarda; é
+    // `narrarFinal()` quem desenha os dois na ordem certa (narração
+    // primeiro, "enquanto isso" depois, como a margem que é).
+    paralelo(texto) {
+      if (texto) paraleloTexto = texto;
+    },
+    // ONDE ELE ESTÁ — "Costa de Ferro › Porto Negro › Taverna do Gancho"
+    // (achado 2026-09-29, pedido: discreto, embaixo do nome; corrigido no
+    // mesmo dia — a trilha vinha SEM a location atual, e no balão, sem um
+    // `<h3>` de cena do lado pra completar, parecia cortada antes de chegar
+    // aonde ele de fato está). `breadcrumb` já vem pronto do conector
+    // (`_meta.breadcrumb`, `laco.js`), de fora pra dentro, TERMINANDO na
+    // location atual.
+    local(breadcrumb) {
+      if (!breadcrumb || !breadcrumb.length) return;
+      localEl.textContent = breadcrumb.join(" › ");
+      localEl.hidden = false;
+    },
+    // O "por quê" (decidiu/pensamento) — texto corrido, antes de qualquer passo.
+    pensar(texto) {
+      const p = document.createElement("p");
+      p.className = "bolha-pensar";
+      p.textContent = texto;
+      corpo.appendChild(p);
+      el.log.scrollTop = el.log.scrollHeight;
+    },
+    // Uma tentativa nasce colapsada — clicar abre comando+retorno.
+    passo(toolCallId, titulo) {
+      const det = document.createElement("details");
+      det.className = "passo pendente";
+      const sum = document.createElement("summary");
+      sum.textContent = titulo;
+      det.appendChild(sum);
+      const corpoPasso = document.createElement("div");
+      corpoPasso.className = "passo-corpo";
+      det.appendChild(corpoPasso);
+      corpo.appendChild(det);
+      passos.set(toolCallId, { det, corpoPasso });
+      el.log.scrollTop = el.log.scrollHeight;
+    },
+    resolverPasso(toolCallId, resultado, falhou) {
+      const p = passos.get(toolCallId);
+      if (!p) return;
+      p.det.classList.remove("pendente");
+      p.det.classList.add(falhou ? "falhou" : "ok");
+      p.corpoPasso.textContent = resultado || "";
+    },
+    // A narração cresce ao vivo, palavra a palavra, dentro do MESMO balão.
+    narrar(pedaco) {
+      let n = corpo.querySelector(".bolha-narracao");
+      if (!n) {
+        n = document.createElement("p");
+        n.className = "bolha-narracao aovivo";
+        corpo.appendChild(n);
+      }
+      n.textContent += pedaco;
+      el.log.scrollTop = el.log.scrollHeight;
+    },
+    // O fechamento autoritativo (agent_message, não chunk) — troca o texto
+    // acumulado pelo consolidado, se vieram diferentes.
+    narrarFinal(texto) {
+      let n = corpo.querySelector(".bolha-narracao");
+      if (!n) {
+        n = document.createElement("p");
+        n.className = "bolha-narracao";
+        corpo.appendChild(n);
+      }
+      n.classList.remove("aovivo");
+      n.textContent = texto || "";
+      // Troca inteira (não só o texto): o "enquanto isso" de uma prosa
+      // anterior (ex.: um `narrar()` ao vivo que nunca chegou a ter final)
+      // não pode sobreviver junto de um novo consolidado.
+      corpo.querySelectorAll(".bolha-divisor, .bolha-paralelo").forEach((el2) => el2.remove());
+      if (paraleloTexto) {
+        const hr = document.createElement("hr");
+        hr.className = "bolha-divisor";
+        corpo.appendChild(hr);
+        const p2 = document.createElement("p");
+        p2.className = "bolha-paralelo";
+        p2.textContent = paraleloTexto;
+        corpo.appendChild(p2);
       }
     },
-    // Troca o rascunho vivo pela entrada de verdade (persistida, com o texto
-    // aparado). Sem isto a prosa some ao trocar de personagem e voltar.
-    fim(textoFinal) {
-      if (span) span.parentElement.remove();
-      appendLog(charId, kind, textoFinal);
-    },
-    // Só apaga o rascunho — para quem vai escrever a versão final por outro
-    // caminho (a intenção passa por `appendIntent`, que monta a fala junto).
-    descartar() {
-      if (span) span.parentElement.remove();
+    encerrado: false,
+    encerrar() {
+      if (handle.encerrado) return;
+      handle.encerrado = true;
+      clearInterval(intervalo);
+      entry.classList.remove("turno-aberto");
+      _turnos.delete(personagem);
+      // Persistência SIMPLES pra sobreviver a reload — o balão rico (passos
+      // colapsáveis, relógio) é só ao vivo; o histórico guarda a narração
+      // final, que é o que mais importa rever depois. `paralelo` vai como
+      // CAMPO PRÓPRIO (achado 2026-09-29, corrigido no mesmo dia — antes
+      // era um join com separador que dependia de regex pra desfazer no
+      // reload; texto determinístico não precisa de marcador nenhum).
+      const n = corpo.querySelector(".bolha-narracao");
+      const s = session(personagem);
+      s.entries.push({ kind: "narration", text: (n && n.textContent) || "",
+                        paralelo: paraleloTexto, badge: null, ts: Date.now() });
+      if (s.entries.length > LOG_MAX_ENTRIES) {
+        s.entries.splice(0, s.entries.length - LOG_MAX_ENTRIES);
+      }
+      saveEntries(personagem);
     },
   };
+  _turnos.set(personagem, handle);
+  return handle;
+}
+
+// O turno aberto de um personagem — abre um novo se ainda não houver
+// (lazy-open no primeiro sinal de atividade, de qualquer tipo).
+function turnoDe(personagem) {
+  return _turnos.get(personagem) || abrirTurno(personagem);
 }
 
 // Mostra a ação que o personagem decidiu tomar (a intenção interpretada por
@@ -1078,12 +1295,21 @@ function appendIntent(charId, name, intent) {
 // Fluxo
 // --------------------------------------------------------------------------- //
 
+// SÓ MONTA A TIMELINE UMA VEZ (spec 074, chat de mesa — 2026-09-23). Antes
+// `loadCharacter` recarregava o log a CADA troca de personagem e a cada fim
+// de turno, porque o log era privado por personagem. Agora é da mesa
+// inteira: os lançamentos ao vivo (`appendLog`/`abrirTurno`) já
+// desenham incrementalmente, e reconstruir do zero a cada chamada só
+// derrubaria a posição do scroll sem necessidade.
+let _mesaLogMontada = false;
+
 async function loadCharacter(id) {
   currentCharacter = id;
   await _apurarSeEhMeu(id);   // spec 061: quem pode escrever compromisso
   renderConectorInfo();   // o aviso de "a Mente joga outro" muda com a seleção
-  // A tela passa a ser deste personagem: histórico e lock são os DELE.
-  renderLog(id);
+  // A troca de personagem muda pra QUEM VOCÊ FALA (o "Jogando: X"), não o
+  // que você vê — a timeline do chat é a mesma para a mesa inteira.
+  if (!_mesaLogMontada) { renderLog(id); _mesaLogMontada = true; }
   applyBusy(session(id).busy);
 
   const [context, inventory] = await Promise.all([
@@ -1148,7 +1374,11 @@ async function onAct(event) {
   // TRAVA JÁ, aqui. Antes eu esperava o evento `estado` voltar do conector, e
   // entre o clique e a resposta da rede dava tempo de sussurrar de novo.
   setBusy(actor, true);
-  appendLog(actor, "you", `Você sussurra: \u201c${text}\u201d`);
+  // Sem "Você sussurra:" (spec 074, achado 2026-09-25) — isso era de quando
+  // só existia um jogador e nenhum conceito de sala. O cabeçalho do balão
+  // ("Jogador X → Personagem", `renderLogEntry`) já diz quem e pra quem;
+  // o corpo é o texto puro, como uma mensagem de chat.
+  appendLog(actor, "you", text);
   try {
     // Volta na hora (202): o turno corre no conector e se conta pelo canal de
     // eventos. Esperar aqui seria uma requisicao pendurada por dezenas de
@@ -1287,17 +1517,163 @@ async function checkConector() {
 // O CANAL: o conector empurra beats e prosa, a tela pinta. Reconecta sozinho -
 // fechar o conector e reabrir nao pode obrigar a recarregar a pagina.
 let _fonte = null;
-let _vivaNarracao = null;
-let _vivaIntencao = null;
 // QUEM o conector joga. Um conector serve UM personagem — a tela deixa você
 // PASSEAR por todos, e essa diferença precisa estar visível, não implícita.
 let _ultimaChecagem = 0;
 
 // O nome de exibição de um personagem, tirado da própria lista já carregada.
+// Só cobre os SEUS (o combo de trocar só lista o que é seu — montarTrocador).
 function nomeDe(id) {
   if (!id) return "O personagem";
   const op = [...(el.select.options || [])].find((o) => o.value === id);
   return (op && op.textContent) || id;
+}
+
+// O nome de QUALQUER um sentado à mesa, seu ou não — a fonte é o roster
+// (`_mesa.assentos[].nome`, que já chega de todo mundo, spec 072), não o
+// combo de troca (que é só seu). É este que rotula um balão do chat.
+function nomeNaMesa(personagem) {
+  const a = (_mesa && _mesa.assentos || []).find((x) => x.personagem === personagem);
+  return (a && a.nome) || nomeDe(personagem);
+}
+
+// De quem é este personagem — e é MEU? A mesma pergunta que `renderConectorInfo`
+// já fazia, só que reusável para qualquer personagem da mesa, não só o atual.
+function donoDe(personagem) {
+  const a = (_mesa && _mesa.assentos || []).find((x) => x.personagem === personagem);
+  return a ? a.dono : null;
+}
+
+// O NOME DO JOGADOR por trás de um personagem — rotula o balão de ENTRADA
+// (spec 074, achado 2026-09-25: "Jogador X → Personagem"). Fonte é o roster
+// de membros da sala (`_mesa.membros[].nome`), casado pelo `dono`.
+function nomeDoJogador(personagem) {
+  const dono = donoDe(personagem);
+  const m = (_mesa && _mesa.membros || []).find((x) => x.sub === dono);
+  return semDuplicata((m && m.nome) || "Jogador");
+}
+
+// "Fulano (Fulano)" -> "Fulano" (achado 2026-09-24, jogando: o cadastro de
+// alguns membros guarda o nome duplicado entre parênteses — não é pra
+// corrigir a fonte do dado aqui, só a exibição, que é o que pesa no balão.
+function semDuplicata(nome) {
+  const m = /^(.+) \(\1\)$/.exec(nome || "");
+  return m ? m[1] : nome;
+}
+function souDono(personagem) {
+  return !!(_mesa && donoDe(personagem) === _mesa.voce);
+}
+
+// A COR DE IDENTIDADE de um personagem no chat de mesa — determinística (hash
+// do id), não por ordem de chegada, para não trocar de cor a cada reconexão.
+// Paleta nova, escolhida para não colidir com as raridades já em uso
+// (dourado=você, azul=item, roxo=memória, verde=intenção) — ver style.css.
+const _PALETA_PERSONAGEM = ["char-a", "char-b", "char-c", "char-d", "char-e"];
+function corDoPersonagem(personagem) {
+  let h = 0;
+  const s = personagem || "";
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return _PALETA_PERSONAGEM[h % _PALETA_PERSONAGEM.length];
+}
+
+// As iniciais pro círculo de avatar sem retrato — 1ª letra da 1ª e da última
+// palavra do nome ("Irmão Tobias" -> "IT"), ou as 2 primeiras se for uma
+// palavra só ("Elga" -> "EL"). Pontuação fora ("Elga, a Taverneira" -> "ET").
+function iniciaisDe(nome) {
+  const palavras = (nome || "").replace(/[,().]/g, "").trim().split(/\s+/).filter(Boolean);
+  if (!palavras.length) return "?";
+  if (palavras.length === 1) return palavras[0].slice(0, 2).toUpperCase();
+  return (palavras[0][0] + palavras[palavras.length - 1][0]).toUpperCase();
+}
+
+// O AVATAR de um personagem, estilo WhatsApp (spec 074, 2026-09-24): tenta o
+// retrato real (`/api/character/image`, já existe desde a spec 044 — item
+// 26 — pra outros cards da tela); sem retrato (404, ou mundo ainda
+// desconhecido), cai nas iniciais sobre um círculo na cor de identidade
+// dele. Sem round-trip prévio: o `<img>` tenta, o `onerror` troca pro
+// fallback já presente no DOM (nunca "some" — vira o círculo de iniciais).
+function avatarHtml(personagem, extraClasse) {
+  const cor = corDoPersonagem(personagem);
+  const iniciais = escapeHtml(iniciaisDe(nomeNaMesa(personagem)));
+  const base = serverBase();
+  const img = base
+    ? `<img src="${escapeAttr(base)}/api/character/image?character_id=` +
+      `${escapeAttr(encodeURIComponent(personagem))}" alt="" ` +
+      `onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
+    : "";
+  const classes = `bolha-avatar ${cor}${extraClasse ? " " + extraClasse : ""}`;
+  return `<span class="${classes}">${img}` +
+    `<span class="bolha-avatar-fallback" style="display:${img ? "none" : "flex"}">` +
+    `${iniciais}</span></span>`;
+}
+
+// O AVATAR DO JOGADOR (achado 2026-09-26): não tem retrato — não faz sentido
+// tentar `/api/character/image`, que é o RETRATO DO PERSONAGEM, não uma foto
+// de quem senta atrás dele. É sempre as iniciais do jogador, sobre a mesma
+// cor de destaque que o resto do balão de entrada já usa (`--accent`,
+// `.bolha-jogador`) — pra ficar visualmente óbvio que este avatar é de uma
+// categoria diferente do avatar de personagem (paleta `char-*`).
+//
+// COMPOSTO com o do personagem (achado 2026-09-28): o balão de entrada é o
+// JOGADOR falando COMO o personagem — o avatar reflete os dois, MESMO
+// TAMANHO (não é um crachá pequeno — os dois círculos inteiros, só
+// deslocados, senão ficariam idênticos e 100% sobrepostos). Jogador na
+// origem do combo, personagem deslocado pro canto inferior direito, atrás
+// dele (`.bolha-avatar-combo`/`.badge` no CSS). Ordem no DOM importa: o do
+// personagem vem PRIMEIRO (pinta embaixo), o do jogador depois (pinta por
+// cima), sem precisar de z-index.
+function avatarJogadorHtml(personagem) {
+  const iniciais = escapeHtml(iniciaisDe(nomeDoJogador(personagem)));
+  return `<span class="bolha-avatar-combo">` +
+    avatarHtml(personagem, "badge") +
+    `<span class="bolha-avatar jogador">` +
+      `<span class="bolha-avatar-fallback">${iniciais}</span></span>` +
+    `</span>`;
+}
+
+// O BOTTOM SHEET (spec 074, 2026-09-26; sidebar aposentada 2026-09-29):
+// componente genérico, aberto por hora só ao clicar no avatar de PERSONAGEM
+// (nunca o de jogador) no chat. Sempre mostra o avatar ampliado e o nome.
+// Você/Pertences/Memórias/Compromissos (e o detalhe de seleção) não vivem
+// mais na interface principal — moram permanentemente dentro do sheet
+// (`#sheet-paineis`, no HTML) e só aparecem quando o personagem clicado é o
+// que você está jogando agora; MOSTRAR/ESCONDER, não mover (não há mais
+// sidebar pra voltar).
+function abrirBottomSheetPersonagem(personagem) {
+  el.sheetAvatar.innerHTML = avatarHtml(personagem);
+  el.sheetNome.textContent = nomeNaMesa(personagem);
+  el.sheetNome.className = corDoPersonagem(personagem);
+  const ehOSeu = personagem === currentCharacter;
+  el.sheetPaineis.hidden = !ehOSeu;
+  el.sheetSemJogo.hidden = ehOSeu;
+  el.sheetBackdrop.hidden = false;
+  el.bottomSheet.hidden = false;
+  // CLICAR NO RETRATO ABRE ELE INTEIRO (achado 2026-09-29) — só existe
+  // `<img>` quando há retrato de verdade; sem ele (`onerror` já trocou pro
+  // círculo de iniciais, ou nem chegou a tentar), não tem o que ampliar.
+  const img = el.sheetAvatar.querySelector("img");
+  if (img) img.onclick = () => abrirImagemCheia(img.src, nomeNaMesa(personagem));
+}
+
+function fecharBottomSheet() {
+  el.sheetBackdrop.hidden = true;
+  el.bottomSheet.hidden = true;
+}
+
+// A IMAGEM CHEIA (achado 2026-09-29): o retrato do personagem, inteiro, sem
+// o recorte de círculo do avatar — `object-fit: contain` (CSS) preserva a
+// proporção original, nunca distorce. Fica POR CIMA do bottom sheet
+// (z-index maior) e fecha clicando em qualquer lugar ou com Esc.
+function abrirImagemCheia(src, alt) {
+  if (!src) return;
+  el.imagemCheiaImg.src = src;
+  el.imagemCheiaImg.alt = alt || "";
+  el.imagemCheia.hidden = false;
+}
+
+function fecharImagemCheia() {
+  el.imagemCheia.hidden = true;
+  el.imagemCheiaImg.src = "";
 }
 
 // Diz, na cara do jogador, quem a Mente conectada está jogando — e avisa quando
@@ -1346,53 +1722,131 @@ function ligarAoConector() {
     fn(d, dono(d));
   });
 
-  ouvir("beat", (d, quem) => appendLog(quem, "beat", d.texto));
-  ouvir("recusa", (d, quem) => appendLog(quem, "beat", d.texto));
-  ouvir("decidiu", (d, quem) =>
-    appendLog(quem, "you", `Ele decidiu agir: \u201c${d.texto}\u201d`));
-  ouvir("sistema", (d, quem) => appendLog(quem, "system", d.texto));
-  ouvir("erro", (d, quem) => appendLog(quem, "system", d.texto));
+  // O PROTOCOLO REAL (spec 074) - um unico evento SSE (session-update) carrega
+  // toda notificacao session/update, discriminada por sessionUpdate dentro do
+  // payload - beat/recusa/decidiu/intencao_*/narracao_* nao existem mais no fio.
+  // personagemDaSessao resolve o sessionId de volta a um personagem via o roster
+  // da mesa (_mesa.assentos[].sessionId, sala.js - FR-009: qualquer sessao
+  // presente e visivel, o roster ja basta, sem round-trip extra de session/new).
+  function personagemDaSessao(sessionId) {
+    const a = (_mesa && _mesa.assentos || []).find((x) => x.sessionId === sessionId);
+    return (a && a.personagem) || currentCharacter;
+  }
 
-  // O RASCUNHO DA AÇÃO, palavra a palavra. Isto tinha se perdido na cisão: o
-  // conector emitia e a tela não escutava. É a parte que mais deixava a tela muda
-  // — a primeira chamada do turno é longa, e ver a frase nascer é o que tira a
-  // sensação de travamento.
-  ouvir("intencao_inicio", (d, quem) => {
-    _vivaIntencao = abrirEntradaViva(quem, "intent");
-    _vivaIntencao.escrever(nomeDe(quem) + " ");
-  });
-  ouvir("intencao", (d) => {
-    if (_vivaIntencao) _vivaIntencao.escrever(d.pedaco || "");
-  });
-  ouvir("intencao_fim", () => {
-    // o rascunho SEMPRE sai: meia frase na tela seria pior que o silêncio.
-    if (_vivaIntencao) _vivaIntencao.descartar();
-    _vivaIntencao = null;
-  });
+  ouvir("session-update", (d, quemFallback) => {
+    const params = d && d.params;
+    if (!params || !params.update) return;
+    const quem = personagemDaSessao(params.sessionId) || quemFallback;
+    const u = params.update;
 
-  ouvir("narracao_inicio", (d, quem) => {
-    _vivaNarracao = abrirEntradaViva(quem, "narration");
-  });
-  ouvir("narracao", (d) => {
-    if (_vivaNarracao) _vivaNarracao.escrever(d.pedaco || "");
-  });
-  ouvir("narracao_fim", (d, quem) => {
-    if (_vivaNarracao) {
-      if (d.texto) _vivaNarracao.fim(d.texto);
-      else _vivaNarracao.descartar();
-      _vivaNarracao = null;
+    if (u.sessionUpdate === "tool_call_update") {
+      // FR-016: o título de cada passo é a prosa DESTA tentativa (`laco.js`,
+      // tituloDinamico) — nunca o nome técnico. Vive dentro do balão do
+      // TURNO (`abrirTurno`/`turnoDe`), um `<details>` por tentativa: nasce
+      // colapsado ("pendente", pulsando), clicar mostra o comando+retorno —
+      // igual um tool call do Claude Code — e se resolve no lugar quando o
+      // desfecho chega, nunca uma segunda linha.
+      const t = turnoDe(quem);
+      if (u.status === "in_progress") {
+        t.passo(u.toolCallId, u.title || "Uma tentativa está em curso");
+        return;
+      }
+      if (u.status === "completed" || u.status === "failed" || u.status === "cancelled") {
+        const texto = (u.content && u.content[0] && u.content[0].content
+                       && u.content[0].content.text) || "";
+        // FALHA MECÂNICA (item 78) marca o passo, não é so mais um sucesso.
+        t.resolverPasso(u.toolCallId, texto, u.status === "failed");
+      }
+      return;
     }
-    if (quem === currentCharacter) loadCharacter(quem);   // o mundo mudou: releia
+
+    if (u.sessionUpdate === "agent_thought") {
+      // O sussurro que a autonomia escolheu (decidiu) e o pensamento já
+      // extraído (FR-015) — os dois entram como o "por quê", antes dos
+      // passos, dentro do MESMO balão de turno.
+      const texto = (u.content && u.content[0] && u.content[0].text) || "";
+      if (texto) turnoDe(quem).pensar(texto);
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_message_chunk" && u._meta && u._meta.diagnostico) {
+      // Diagnóstico de harness (sistema/erro de antes) — nunca narrativa de
+      // mundo, linha neutra fora do balão.
+      const texto = (u.content && u.content.text) || "";
+      if (texto) appendLog(quem, "system", texto);
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_thought_chunk") {
+      // O RASCUNHO bruto (antes intencao_inicio/intencao) não vira mais
+      // texto visível (achado 2026-09-25: o Claude Code também não expõe o
+      // draft cru de um tool call em progresso, só o resultado resolvido e
+      // o tempo decorrido). Só garante que o balão do turno já esteja
+      // aberto, pro relógio começar a contar assim que algo se mexe.
+      turnoDe(quem);
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_message_chunk") {
+      // A narração cresce ao vivo, palavra a palavra, dentro do balão do turno.
+      turnoDe(quem).narrar((u.content && u.content.text) || "");
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_message") {
+      const texto = (u.content && u.content[0] && u.content[0].text) || "";
+      // "ENQUANTO ISSO, AO REDOR" (achado 2026-09-29, corrigido no mesmo
+      // dia): mensagem PRÓPRIA, marcada em `_meta.paralelo` — chega ANTES
+      // da narração no mesmo turno, então só guarda (`turnoDe` já garante o
+      // balão aberto); quem desenha na ordem certa é `narrarFinal`.
+      if (u._meta && u._meta.paralelo) {
+        if (texto) turnoDe(quem).paralelo(texto);
+        return;
+      }
+      // O fechamento autoritativo da narração (antes narracao_fim) — e o
+      // fechamento do balão inteiro: para o relógio, persiste a narração
+      // final pro histórico sobreviver a um reload.
+      const t = _turnos.get(quem);
+      if (t) {
+        t.narrarFinal(texto);
+        t.encerrar();
+      } else if (texto) {
+        // Sem turno aberto: fluxo avulso (ex.: observar, que não passa pelo
+        // balão — não toma a trava, spec 018).
+        appendLog(quem, "narration", texto);
+      }
+      if (quem === currentCharacter) loadCharacter(quem);   // o mundo pode ter mudado
+      return;
+    }
+
+    if (u.sessionUpdate === "state_update") {
+      // FR-014: ainda chega, mas não abre/fecha mais nada — quem faz isso
+      // agora é o primeiro sinal de atividade (abre, `turnoDe`) e a
+      // narração final / `estado: ocupado:false` (fecha, abaixo). O que
+      // sobra a fazer aqui: extensões via `_meta` — hoje só `breadcrumb`
+      // (achado 2026-09-29, "onde ele está").
+      if (u._meta && u._meta.breadcrumb) turnoDe(quem).local(u._meta.breadcrumb);
+      return;
+    }
   });
 
   ouvir("estado", (d, quem) => {
     setBusy(quem, !!d.ocupado);
     renderConectorInfo();
+    // Rede de segurança: se por algum motivo a narração final nunca chegou
+    // a fechar o balão (`agent_message`), o fim do turno fecha assim mesmo
+    // — `encerrar()` é idempotente.
+    if (!d.ocupado) {
+      const t = _turnos.get(quem);
+      if (t) t.encerrar();
+    }
   });
 
-  // A MESA (spec 072). `sala` e `fila` são faixa de MESA: todo mundo vê quem joga e
-  // quem espera, como numa roda. A faixa privada de cada um continua chegando só ao
-  // dono — o conector já filtra, e `appendLog` já guarda por personagem.
+  // A MESA (spec 072). `sala` e `fila` continuam no formato de sempre (fora de
+  // banda — não são por-sessão). A privacidade por dono CAIU dentro da sala
+  // (FR-008/009, spec 074): qualquer sessão presente pode ser observada por
+  // qualquer cliente conectado — `appendLog` só guarda por personagem para o log
+  // de cada um crescer independente, não para esconder nada.
   const daMesa = (d) => {
     _mesa = { ...(_mesa || {}), ...d };
     pintarMesa();
@@ -1991,7 +2445,7 @@ function pintarMesa() {
   elModal.mesaFila.textContent =
     _mesa.jogando === currentCharacter ? "sua vez, agora"
     : naFila ? `na fila (${naFila.posicao}\u00ba)`
-    : _mesa.jogando ? `a mesa joga ${nomeDe(_mesa.jogando)}`
+    : _mesa.jogando ? `a mesa joga ${nomeNaMesa(_mesa.jogando)}`
     : `${(_mesa.assentos || []).length} \u00e0 mesa`;
 }
 
@@ -2021,7 +2475,19 @@ function init() {
   // Sem conector não há Mente — e o caminho para consertar isso é ESCOLHER OUTRA MESA,
   // não abrir uma tela de configuração que já não existe.
   el.runtimeConfig.addEventListener("click", showSalas);
-  
+  el.sheetClose.addEventListener("click", fecharBottomSheet);
+  el.sheetBackdrop.addEventListener("click", fecharBottomSheet);
+  el.imagemCheia.addEventListener("click", fecharImagemCheia);
+  el.imagemCheiaFechar.addEventListener("click", (e) => {
+    e.stopPropagation();   // senão o clique também cai no backdrop e dispara 2x (inofensivo, mas redundante)
+    fecharImagemCheia();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!el.imagemCheia.hidden) { fecharImagemCheia(); return; }
+    if (!el.bottomSheet.hidden) fecharBottomSheet();
+  });
+
   if (elModal.logoutBtn) elModal.logoutBtn.addEventListener("click", () => {
     clearJwt();
     showLogin();

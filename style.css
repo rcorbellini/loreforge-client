@@ -40,6 +40,12 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  /* Rede de segurança (achado 2026-09-29): o conteúdo do log é texto de
+     jogador/LLM, nunca sob nosso controle — sempre pode chegar algo sem
+     espaço pra quebrar. `overflow-wrap` em `.log .bolha` é o conserto de
+     verdade; isto aqui garante que NENHUMA fonte futura de overflow
+     horizontal role a página inteira de lado. */
+  overflow-x: hidden;
 }
 
 /* cantoneiras metálicas nos cantos opostos de um painel — a marca visual do HUD */
@@ -78,13 +84,13 @@ body {
 }
 
 /* barra de rolagem — combina com o metal escurecido do resto do HUD */
-.sidebar, .log, .tree {
+.sheet-body, .log, .tree {
   scrollbar-color: var(--accent-dim) var(--panel);
   scrollbar-width: thin;
 }
-.sidebar::-webkit-scrollbar, .log::-webkit-scrollbar { width: 9px; }
-.sidebar::-webkit-scrollbar-track, .log::-webkit-scrollbar-track { background: var(--panel); }
-.sidebar::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb {
+.sheet-body::-webkit-scrollbar, .log::-webkit-scrollbar { width: 9px; }
+.sheet-body::-webkit-scrollbar-track, .log::-webkit-scrollbar-track { background: var(--panel); }
+.sheet-body::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb {
   background: var(--accent-dim);
   border-radius: 4px;
 }
@@ -194,18 +200,25 @@ body {
 }
 .runtime-banner[hidden] { display: none; }
 
+/* Sidebar aposentada (2026-09-29): Você/Pertences/Memórias/Compromissos
+   mudaram pro bottom sheet — não sobrou segunda coluna, `.play` é a
+   interface principal inteira. */
 .layout {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 340px;
+  display: flex;
   min-height: 0;
 }
 
 .play {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line-dark);
+  /* Achado 2026-09-29 (celular, 320px): item de flex por padrão não encolhe
+     abaixo do min-content dos FILHOS (`.mesa-barra` etc.) — sem isto, um
+     filho um pouco largo empurrava `.play` (e a página) mais larga que a
+     tela, mesmo com `.mesa-barra` já tendo `flex-wrap`. */
+  min-width: 0;
 }
 
 .scene {
@@ -332,8 +345,255 @@ body {
   overflow-y: auto;
   padding: 1rem 1.4rem;
   line-height: 1.6;
+  /* CHAT DE MESA (spec 074, 2026-09-23): a coluna vira flex pra cada balão
+     poder se alinhar sozinho (`align-self`) — é isso que separa "meu
+     personagem" (direita) de "todo o resto da mesa" (esquerda), sem precisar
+     de wrapper extra por entrada. */
+  display: flex;
+  flex-direction: column;
 }
 .log .entry { margin-bottom: 1rem; }
+
+/* Linha NEUTRA (sistema/mapa) — não é a voz de ninguém, fica centralizada e
+   sem caixa, como o aviso "fulano entrou" de um chat de grupo. */
+.log .entry:not(.minha):not(.deles) { align-self: center; text-align: center; max-width: 90%; }
+
+/* A LINHA — avatar fora do balão, lado a lado (achado 2026-09-24: dentro
+   parecia que o balão "nascia" do avatar). `.entry` é a linha inteira (quem
+   alinha à direita/esquerda); `.bolha`, de dentro, é só o cartão. */
+.log .entry.minha,
+.log .entry.deles {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 82%;
+}
+.log .entry.minha { align-self: flex-end; }
+.log .entry.deles { align-self: flex-start; }
+
+/* O BALÃO — sussurro, tentativa, narração, rascunho: sempre atribuído a UM
+   personagem da mesa, com nome e cor próprios acima do texto. */
+.log .bolha {
+  min-width: 0;   /* permite encolher dentro do flex, senão o texto empurra a linha */
+  /* Achado 2026-09-29 (celular, 320px): `min-width:0` só permite o BALÃO
+     encolher — sem isto, uma palavra sem espaço (URL colada, hash) não
+     quebra e o empurra maior que a tela, e esse empurrão sobe até `.log`,
+     `.play` e a PÁGINA INTEIRA: era daí que vinha o scroll horizontal. */
+  overflow-wrap: break-word;
+  word-break: break-word;
+  flex: 1 1 auto;
+  padding: 0.5rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.log .bolha-nome {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+  /* Sem opacity < 1 (achado 2026-09-24): a opacidade some com parte do
+     contraste que as cores abaixo foram escolhidas pra ter — melhor a cor
+     já nascer no tom certo do que escurecer por cima depois. */
+}
+/* ONDE ELE ESTÁ (achado 2026-09-29) — discreto de propósito: sem
+   caixa-alta, sem cor de personagem, bem menor que o nome. Some quando não
+   há trilha nenhuma (`hidden`, ver `abrirTurno`/`handle.local`). */
+.log .bolha-local {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.02em;
+  margin: -0.05rem 0 0.3rem;
+}
+.log .bolha-local[hidden] { display: none; }
+/* A ENTRADA (o que VOCÊ digitou — sussurro, observar, recordar caminhos):
+   sempre à direita, sempre "minha", não importa de quem é o personagem
+   (achado 2026-09-25: direita é INPUT, não "meu personagem"). */
+.log .bolha.minha {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel-3));
+  border-color: var(--accent-dim);
+  /* Canto pequeno do lado do avatar (achado 2026-09-26: como o avatar fica
+     no topo, achatar o canto de BAIXO não tinha efeito nenhum — a impressão
+     de "nasce do avatar" pede o canto de CIMA, do lado onde o avatar está). */
+  border-top-right-radius: 3px;
+}
+.log .bolha-jogador { color: var(--accent); }
+/* O NOME DO PERSONAGEM, mesmo dentro do cabeçalho de ENTRADA, segue a cor
+   DELE (achado 2026-09-24) — a mesma que o balão de saída dele usa (via
+   `--cor-p`, definida mais abaixo pelas classes `char-*`). */
+.log .bolha-personagem[class*="char-"] { color: var(--cor-p); }
+/* A SAÍDA — o balão de turno de um personagem (passos + narração), ou uma
+   resposta avulsa (ex.: observar): sempre à esquerda, é a mesa respondendo. */
+.log .bolha.deles { border-top-left-radius: 3px; }
+/* O BALÃO DE TURNO por dentro — spec 074, "estilo Claude Code" (2026-09-25).
+   `bolha-tempo` conta enquanto o turno está aberto (`turno-aberto`); os
+   passos e a narração se acumulam em `bolha-corpo`, na ordem em que chegam. */
+.log .bolha.turno { min-width: 40%; }
+.log .bolha-tempo {
+  font-size: 0.9em;
+  opacity: 0.7;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.log .entry.turno-aberto .bolha-tempo { animation: int-pulso 1.1s ease-in-out infinite; }
+/* A BORDA do balão pulsa junto do relógio (achado 2026-09-28) — mesma
+   duração/easing do `int-pulso`, pra sincronizar visualmente, mas em
+   `border-color` (não `opacity`): o texto de dentro tem de continuar
+   legível e estável enquanto o turno carrega, só a moldura "respira". */
+.log .entry.turno-aberto .bolha.deles { animation: borda-pulso 1.1s ease-in-out infinite; }
+.log .bolha-corpo { margin-top: 0.3rem; }
+.log .bolha-pensar {
+  color: var(--ink-dim);
+  font-style: italic;
+  font-size: 0.9rem;
+  margin: 0 0 0.4rem;
+}
+.log .bolha-narracao { color: var(--ink); margin: 0.3rem 0 0; }
+/* "ENQUANTO ISSO" (spec 074, 2026-09-27): o que aconteceu ao redor, à
+   margem da ação — a Mente ainda escreve isso dentro da MESMA prosa (não
+   há canal separado no conector ainda), então a tela recorta NA
+   APRESENTAÇÃO. Divisor fino + itálico + tom mais apagado, deliberadamente
+   perto do visual de `.passo-corpo` (o "texto da tool") — é periférico do
+   mesmo jeito que um resultado de ferramenta é, não é o fato principal. */
+.log .bolha-divisor {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 0.5rem 0;
+  opacity: 0.6;
+}
+.log .bolha-paralelo {
+  color: var(--ink-dim);
+  font-style: italic;
+  font-size: 0.9em;
+  margin: 0;
+}
+/* UM PASSO = UMA TENTATIVA, colapsado por padrão — clicar mostra o comando e
+   o retorno, o `<summary>`/`<details>` nativo já dá o "clique pra expandir"
+   de graça, sem JS nenhum pro toggle. */
+/* Sem barra lateral (achado 2026-09-24: ficava ruim dentro do balão, que já
+   tem a própria borda) — só recuo suficiente pra separar do texto ao redor,
+   fonte um ponto menor (era 0.9rem, mesmo tamanho da narração — os passos
+   são detalhe, não o conteúdo principal). */
+.log .passo {
+  margin: 0.3rem 0;
+  padding: 0.1rem 0;
+  font-size: 0.82rem;
+}
+/* SEM SETA (achado 2026-09-24): o `<summary>` continua clicável — abre e
+   fecha igual — só o triângulo nativo (que o navegador desenha via
+   `::marker`/`::-webkit-details-marker`, empurrando o texto pra dentro)
+   some. Margem esquerda igual à do resto do corpo do balão (0, a mesma de
+   `.bolha-pensar`/`.bolha-narracao`), não mais a do marcador. */
+.log .passo summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+  list-style: none;
+  margin-left: 0;
+}
+.log .passo summary::-webkit-details-marker { display: none; }
+.log .passo-corpo {
+  margin: 0.25rem 0 0.15rem 0.5rem;
+  color: var(--ink-dim);
+  font-size: 0.9em;
+  font-style: italic;
+}
+/* PENDENTE: pulsa — a mesma "em voo" de sempre, enquanto o mundo não respondeu. */
+.log .passo.pendente summary { animation: int-pulso 1.1s ease-in-out infinite; }
+/* OK: losango dourado — o mesmo marcador que `.beat` já usava. */
+.log .passo.ok summary::before { content: "\25c7\00a0"; color: var(--accent); }
+/* FALHOU (item 78): aviso — a mesma linguagem de `.beat.falhou` de antes,
+   agora dentro do passo em vez de uma linha separada. */
+.log .passo.falhou summary { color: var(--warn); }
+.log .passo.falhou summary::before { content: "\26a0\00a0"; color: var(--warn); }
+/* A COR DE IDENTIDADE por personagem — só no NOME, nunca no fundo do balão
+   inteiro (fundo uniforme demais coloridão vira ruído; o nome já basta pra
+   escanear "quem disse o quê" numa mesa de 4). Paleta nova, longe das
+   raridades já em uso (dourado=você, azul=item, roxo=memória, verde=intenção
+   — hud-visual-style). */
+/* Clareados (achado 2026-09-24: a versão anterior batia perto de 4.7-6.5:1
+   contra o fundo do balão — perto demais do mínimo AA pra um rótulo pequeno
+   e maiúsculo). Estes ficam entre 6.9 e 9.6:1.
+   Uma variável por personagem (`--cor-p`), não a cor direto no seletor — é
+   o que deixa o AVATAR (círculo com iniciais, abaixo) usar a MESMA cor do
+   nome sem repetir a paleta duas vezes. */
+/* Escopado a `.log` e `.sheet-header` (não geral — a substring "char-a"
+   também bate em ".char-avatar", classe antiga do card de seleção de
+   personagem, que não deve herdar `--cor-p`). */
+.log [class*="char-a"], .sheet-header [class*="char-a"] { --cor-p: #e39aab; }  /* vinho */
+.log [class*="char-b"], .sheet-header [class*="char-b"] { --cor-p: #7fd0c9; }  /* teal */
+.log [class*="char-c"], .sheet-header [class*="char-c"] { --cor-p: #d4a468; }  /* bronze */
+.log [class*="char-d"], .sheet-header [class*="char-d"] { --cor-p: #a3b6d9; }  /* aço */
+.log [class*="char-e"], .sheet-header [class*="char-e"] { --cor-p: #c0d47a; }  /* oliva */
+.log .bolha-nome[class*="char-"] { color: var(--cor-p); }
+.sheet-header h3[class*="char-"] { color: var(--cor-p); }
+
+/* O AVATAR — círculo estilo WhatsApp FORA do balão, na linha (spec 074,
+   achado 2026-09-24: por dentro parecia que o balão "nascia" dele — agora é
+   irmão do `.bolha`, não filho, ver `.log .entry.minha/.deles` acima).
+   Com retrato (`/api/character/image`, já servido pelo server — item 26):
+   a foto, recortada em círculo. Sem retrato: as iniciais do personagem sobre
+   um círculo na cor de identidade dele. A troca é `onerror` no `<img>`, sem
+   round-trip prévio pra saber se a imagem existe. Maior que a 1ª versão
+   (22px) — 22 ficava pequeno demais pra um avatar de linha. */
+/* Sem prefixo `.log` (achado 2026-09-27: o mesmo `avatarHtml()` passou a
+   render dentro do bottom sheet também — fora de `.log` essas regras não
+   batiam, e o retrato em alta resolução vazava sem `object-fit`/
+   `overflow:hidden`, estourando o layout do sheet). */
+.bolha-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--panel-3);
+  border: 1px solid var(--cor-p, var(--line));
+  flex-shrink: 0;
+}
+.bolha-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* O AVATAR DO JOGADOR é sempre iniciais (achado 2026-09-26: não existe
+   retrato de jogador, só de personagem) — cor dourada (`--accent`), a mesma
+   de `.bolha-jogador`, pra não ser confundido com a paleta `char-*`. */
+.bolha-avatar.jogador { border-color: var(--accent-dim); }
+.bolha-avatar.jogador .bolha-avatar-fallback { color: var(--accent); }
+.bolha-avatar-fallback {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--cor-p, var(--ink-dim));
+}
+
+/* O COMBO jogador+personagem (achado 2026-09-28, corrigido no mesmo dia: os
+   dois são do MESMO tamanho — não é um crachá pequeno, é deslocamento puro,
+   senão ficariam idênticos e sobrepostos 100%). Jogador por cima (pintado
+   por ÚLTIMO no DOM, ver `avatarJogadorHtml` — cobre a parte onde os dois se
+   tocam, sem precisar de z-index), personagem deslocado pro canto inferior
+   direito, parcialmente atrás dele. A caixa cresce pra caber os dois
+   círculos inteiros (34px + o deslocamento de 14px). */
+.log .bolha-avatar-combo {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  flex-shrink: 0;
+}
+.log .bolha-avatar-combo .bolha-avatar.jogador {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.log .bolha-avatar-combo .bolha-avatar.badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  /* Anel na cor do fundo — separa as duas bordas coloridas onde se tocam. */
+  border: 2px solid var(--bg);
+}
 
 /* A árvore de caminhos é a única coisa no log em que o ALINHAMENTO carrega
    sentido: os traços só formam ramos se cada coluna cair no mesmo lugar. Daí
@@ -349,13 +609,6 @@ body {
   overflow-x: auto;
 }
 .log .you { color: var(--accent-bright); }
-.log .intent {
-  color: var(--ink-dim);
-  font-style: italic;
-  display: block;
-  padding-left: 0.8rem;
-  border-left: 2px solid var(--accent-dim);
-}
 .log .narration { color: var(--ink); }
 .log .system { color: var(--warn); font-size: 0.85rem; }
 /* O FATO, ao vivo (spec 043): chega no instante em que o mundo muda, antes de
@@ -370,6 +623,16 @@ body {
 .log .beat::before {
   content: "\25c7\00a0";
   color: var(--accent-dim);
+  font-style: normal;
+}
+/* A FALHA MECÂNICA (item 78, spec 074) é sinal, não só mais um beat — o
+   Árbitro nem chegou a julgar, é diferente de uma recusa do mundo (que
+   continua com o losango dourado de sempre). O marcador muda de cor E de
+   glifo para não depender só da cor (acessibilidade / leitura rápida). */
+.log .beat.falhou { color: var(--warn); }
+.log .beat.falhou::before {
+  content: "\26a0\00a0";
+  color: var(--warn);
   font-style: normal;
 }
 
@@ -433,15 +696,6 @@ body {
    quem conta o tempo e quem liga o laço é o conector, no painel dele. Um
    mostrador de relógio alheio é enfeite, e enfeite que parece controle engana. */
 
-.sidebar {
-  padding: 0.8rem;
-  overflow-y: auto;
-  background-color: var(--panel);
-  background-image: var(--noise);
-  background-repeat: repeat;
-  border-left: 1px solid var(--line-dark);
-}
-
 .panel {
   background-color: var(--panel-3);
   background-image: var(--noise);
@@ -452,7 +706,7 @@ body {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
-.sidebar h2 {
+.sheet-body h2 {
   font-size: 0.85rem;
   color: var(--accent);
   text-transform: uppercase;
@@ -592,10 +846,11 @@ body {
 .detail dd { margin: 0; color: var(--ink); font-style: normal; }
 
 /* ===== Responsivo (celular / telas estreitas) =====
-   Abaixo de 768px o HUD deixa de ser duas colunas fixas (jogo + sidebar) e
-   empilha em uma coluna só, com a página inteira rolando — as áreas de
-   scroll interno (.log, .sidebar) só fazem sentido quando .play/.layout têm
-   altura travada em 100vh, o que só acontece no desktop. */
+   `.layout` já é uma coluna só em qualquer largura (sidebar aposentada,
+   2026-09-29 — o que hoje mora nela é o bottom sheet, que é `position:
+   fixed` e não participa deste layout). Abaixo de 768px a página inteira
+   passa a rolar (`body { height: auto }`) em vez de travar 100vh com scroll
+   interno em `.log`. */
 @media (max-width: 768px) {
   body { height: auto; min-height: 100dvh; }
 
@@ -620,21 +875,16 @@ body {
   .runtime-banner { flex-wrap: wrap; row-gap: 0.5rem; }
   .runtime-banner button { margin-left: 0; width: 100%; }
 
-  .layout { display: flex; flex-direction: column; }
-
-  .play { border-right: none; border-bottom: 1px solid var(--line-dark); }
   .scene, .log { margin-left: 0.6rem; margin-right: 0.6rem; }
 
   /* input de ação fica grudado no rodapé da tela, sempre à mão, mesmo
-     rolando pelo log ou pela sidebar abaixo dele */
+     rolando pelo log abaixo dele */
   .act {
     position: sticky;
     bottom: 0;
     z-index: 5;
     margin: 0.6rem;
   }
-
-  .sidebar { border-left: none; border-top: 1px solid var(--line-dark); }
 
   /* alvos de toque maiores — dedo é mais impreciso que cursor de mouse */
   .node, .mem-node { padding: 0.45rem 0.5rem; }
@@ -963,3 +1213,129 @@ body {
   animation: int-pulso 1.1s ease-in-out infinite;
 }
 @keyframes int-pulso { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes borda-pulso { 0%, 100% { border-color: var(--line); } 50% { border-color: var(--accent-dim); } }
+
+/* --- O BOTTOM SHEET (spec 074, 2026-09-26) --- */
+/* Só o avatar de PERSONAGEM abre o sheet (o de jogador não tem handler —
+   ver avatarJogadorHtml em app.js); o cursor avisa qual dos dois é. */
+.log .bolha-avatar:not(.jogador) { cursor: pointer; }
+
+.sheet-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(10, 8, 4, 0.65);
+  z-index: 150;
+}
+.sheet-backdrop[hidden] { display: none; }
+
+.bottom-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 151;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--panel);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 0 0 1px var(--line-dark), var(--shadow-deep);
+  border-radius: 14px 14px 0 0;
+  padding: 0.6rem 1.2rem 1.2rem;
+  overflow: hidden;
+}
+.bottom-sheet[hidden] { display: none; }
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  margin: 0 auto 0.8rem;
+}
+.sheet-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.9rem;
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.sheet-close:hover { color: var(--ink); }
+
+/* Esfera centralizada no topo (achado 2026-09-27: lado a lado com o nome
+   deixava pouco espaço pro círculo crescer; empilhado e centralizado é o
+   que segura um retrato grande sem disputar espaço com o texto). */
+.sheet-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+/* Avatar ampliado — a MESMA esfera de `.bolha-avatar` (círculo, recorte,
+   fallback de iniciais), só maior; `overflow:hidden` do círculo é quem
+   contém o retrato em alta resolução, não o tamanho do `<img>` em si. */
+.sheet-avatar .bolha-avatar {
+  width: 96px;
+  height: 96px;
+  min-width: 96px;
+  border-width: 2px;
+}
+.sheet-avatar .bolha-avatar-fallback { font-size: 2rem; }
+/* Só o RETRATO abre em tela cheia (achado 2026-09-29) — clicar nas
+   iniciais não abriria nada, então nem ganha o cursor de "clicável"
+   (`abrirBottomSheetPersonagem` só liga o onclick no `<img>` mesmo). */
+.sheet-avatar .bolha-avatar img { cursor: pointer; }
+.sheet-header h3 {
+  margin: 0;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+/* O AVISO pra quando o personagem clicado NÃO é o que você está jogando
+   (`#sheet-sem-jogo`) e o WRAPPER dos painéis (`#sheet-paineis`) são
+   MUTUAMENTE EXCLUSIVOS — `abrirBottomSheetPersonagem` alterna `hidden`
+   entre os dois, nunca os dois visíveis juntos. */
+.sheet-paineis {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.sheet-paineis[hidden] { display: none; }
+
+/* A IMAGEM CHEIA (achado 2026-09-29) — o retrato inteiro, sem o recorte de
+   círculo do avatar. `object-fit: contain` preserva a proporção original
+   (nunca distorce, nunca corta) dentro do espaço disponível; o `<img>` em
+   si nunca passa do tamanho da tela. Acima do bottom sheet (que a abriu),
+   por isso o z-index maior. */
+.imagem-cheia {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 4, 0.92);
+  cursor: pointer;
+}
+.imagem-cheia[hidden] { display: none; }
+.imagem-cheia img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  box-shadow: var(--shadow-deep);
+}
+/* Os painéis não têm mais a moldura de uma sidebar ao redor (já têm a do
+   próprio `.panel`) — sem isso duplicava borda dentro de borda. */
+.sheet-paineis .panel { margin: 0; }

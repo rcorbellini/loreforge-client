@@ -2,7 +2,12 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- interactive-widget=resizes-content (achado 2026-09-29): sem isto, o
+       teclado virtual do celular só encolhe a área VISUAL — a área de
+       LAYOUT (e o `.act` grudado nela com `position: sticky; bottom: 0`)
+       fica do tamanho de antes, atrás do teclado. Com isto, o teclado
+       encolhe o layout de verdade, e o input sobe pra cima dele sozinho. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <title>Loreforge</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -135,42 +140,75 @@
         <span id="mesa-fila" class="mesa-fila"></span>
       </div>
     </section>
-
-    <aside class="sidebar">
-      <section class="panel panel-self">
-        <h2>Você</h2>
-        <div id="self-card" class="self-card"></div>
-      </section>
-
-      <section class="panel panel-inventory">
-        <h2>Pertences</h2>
-        <ul id="tree" class="tree"></ul>
-      </section>
-
-      <section class="panel panel-memories">
-        <h2>Memórias</h2>
-        <ul id="memories" class="mem-list"></ul>
-      </section>
-
-      <!-- spec 061: os compromissos do personagem, na mão de quem é dono dele.
-           O verbo é ABANDONAR, nunca "excluir": o arquivo continua no disco com
-           `status: abandonada` (Princípio IV), e dizer excluir seria o jogo
-           mentindo sobre o que fez. -->
-      <section class="panel panel-intentions">
-        <h2>Compromissos</h2>
-        <ul id="intentions" class="int-list"></ul>
-        <form id="int-form" class="int-form" hidden>
-          <textarea id="int-input" rows="2" maxlength="2000"
-                    placeholder="A que este personagem se compromete?"></textarea>
-          <button type="submit">Assumir</button>
-        </form>
-      </section>
-
-      <div id="detail" class="panel detail">
-        <p class="detail-empty">Selecione algo à esquerda para ver os detalhes.</p>
-      </div>
-    </aside>
   </main>
+
+  <!-- O BOTTOM SHEET (spec 074, 2026-09-26; sidebar aposentada 2026-09-29): a
+       sidebar ao lado do chat SAIU da interface principal — os painéis abaixo
+       moraram lá até aqui, e agora vivem só dentro do sheet, aberto ao clicar
+       no avatar de um personagem no chat. O avatar ampliado e o nome aparecem
+       sempre; Você/Pertences/Memórias/Compromissos (e o detalhe de seleção)
+       só quando é o SEU personagem em jogo — `abrirBottomSheetPersonagem`
+       mostra/esconde, nunca move (não há mais pra onde voltar). -->
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+  <div id="bottom-sheet" class="bottom-sheet" hidden>
+    <div class="sheet-handle"></div>
+    <button id="sheet-close" class="sheet-close" type="button" aria-label="Fechar">&times;</button>
+    <div class="sheet-header">
+      <span id="sheet-avatar" class="sheet-avatar"></span>
+      <h3 id="sheet-nome"></h3>
+    </div>
+    <div id="sheet-body" class="sheet-body">
+      <!-- Só existe (mostrado) pro personagem que você está JOGANDO — ver
+           `abrirBottomSheetPersonagem`. Pra outro personagem da mesa, o
+           sheet mostra só o cabeçalho (avatar + nome) acima. -->
+      <p id="sheet-sem-jogo" class="detail-empty" hidden>
+        Isto só pode ser visto do personagem que você está jogando agora.
+      </p>
+      <div id="sheet-paineis" class="sheet-paineis">
+        <section class="panel panel-self">
+          <h2>Você</h2>
+          <div id="self-card" class="self-card"></div>
+        </section>
+
+        <section class="panel panel-inventory">
+          <h2>Pertences</h2>
+          <ul id="tree" class="tree"></ul>
+        </section>
+
+        <section class="panel panel-memories">
+          <h2>Memórias</h2>
+          <ul id="memories" class="mem-list"></ul>
+        </section>
+
+        <!-- spec 061: os compromissos do personagem, na mão de quem é dono dele.
+             O verbo é ABANDONAR, nunca "excluir": o arquivo continua no disco com
+             `status: abandonada` (Princípio IV), e dizer excluir seria o jogo
+             mentindo sobre o que fez. -->
+        <section class="panel panel-intentions">
+          <h2>Compromissos</h2>
+          <ul id="intentions" class="int-list"></ul>
+          <form id="int-form" class="int-form" hidden>
+            <textarea id="int-input" rows="2" maxlength="2000"
+                      placeholder="A que este personagem se compromete?"></textarea>
+            <button type="submit">Assumir</button>
+          </form>
+        </section>
+
+        <div id="detail" class="panel detail">
+          <p class="detail-empty">Selecione algo acima para ver os detalhes.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- A IMAGEM CHEIA (achado 2026-09-29): clicar no avatar ampliado do
+       sheet abre o retrato inteiro, sem recorte de círculo nem distorção —
+       `object-fit: contain` mantém a proporção original, ocupando a tela
+       toda. Clicar em qualquer lugar (ou Esc) fecha. -->
+  <div id="imagem-cheia" class="imagem-cheia" hidden>
+    <button id="imagem-cheia-fechar" class="sheet-close" type="button" aria-label="Fechar">&times;</button>
+    <img id="imagem-cheia-img" src="" alt="">
+  </div>
 
   <script src="app.js"></script>
 </body>

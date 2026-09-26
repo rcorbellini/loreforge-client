@@ -1339,3 +1339,39 @@ body {
 /* Os painéis não têm mais a moldura de uma sidebar ao redor (já têm a do
    próprio `.panel`) — sem isso duplicava borda dentro de borda. */
 .sheet-paineis .panel { margin: 0; }
+
+/* HARNESS POR OBJETIVOS (spec 075, contrato 02) — as duas camadas.
+   Visível: o rótulo neutro que se substitui a cada caixa, o plano do desejo e o
+   bloqueio destacado. Bastidor: recolhido, discreto, só leitura. */
+.log .bolha-rotulo {
+  margin: 4px 0;
+  font-size: 0.85em;
+  font-style: italic;
+  opacity: 0.7;
+}
+.log .bolha-plano {
+  margin: 6px 0;
+  padding-left: 1.4em;
+  font-size: 0.88em;
+}
+.log .bolha-plano li.plano-completed { text-decoration: line-through; opacity: 0.55; }
+.log .bolha-plano li.plano-in_progress { font-weight: 600; }
+.log .bolha-plano li.plano-pending { opacity: 0.8; }
+.log .bolha-intervencao {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid currentColor;
+  font-size: 0.9em;
+}
+.log details.bastidor {
+  margin: 6px 0;
+  font-size: 0.75em;
+  opacity: 0.6;
+}
+.log details.bastidor summary { cursor: pointer; }
+.log details.bastidor ul {
+  margin: 4px 0;
+  padding-left: 1.2em;
+  font-family: ui-monospace, monospace;
+  word-break: break-word;
+}

@@ -1164,6 +1164,67 @@ function abrirTurno(personagem) {
       corpo.appendChild(p);
       el.log.scrollTop = el.log.scrollHeight;
     },
+    // HARNESS POR OBJETIVOS (spec 075, contrato 02) — a camada VISÍVEL: um rótulo
+    // neutro que se substitui a cada caixa ("procurando onde está a caneca…"). Sem
+    // número, id ou nome de tool — isso é o conector que garante; aqui só se mostra.
+    rotulo(texto) {
+      let r = corpo.querySelector(".bolha-rotulo");
+      if (!r) {
+        r = document.createElement("p");
+        r.className = "bolha-rotulo";
+        corpo.appendChild(r);
+      }
+      r.textContent = texto || "";
+      r.hidden = !texto;
+      el.log.scrollTop = el.log.scrollHeight;
+    },
+    // O BASTIDOR — o que o resolvedor decidiu (tool, alvos, margem, subida). SEMPRE
+    // recolhido e só leitura: é depuração, não menu (Princípio V).
+    bastidor(box, dados) {
+      let b = corpo.querySelector("details.bastidor");
+      if (!b) {
+        b = document.createElement("details");
+        b.className = "bastidor";
+        const sum = document.createElement("summary");
+        sum.textContent = "bastidor";
+        b.appendChild(sum);
+        const lista = document.createElement("ul");
+        b.appendChild(lista);
+        corpo.appendChild(b);
+      }
+      const li = document.createElement("li");
+      const partes = Object.entries(dados || {})
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
+      li.textContent = `${box || "?"} · ${partes.join(" · ")}`;
+      b.querySelector("ul").appendChild(li);
+    },
+    // O CAMINHO do desejo — o plano inteiro, substituído a cada atualização.
+    plano(entries) {
+      let pl = corpo.querySelector(".bolha-plano");
+      if (!pl) {
+        pl = document.createElement("ol");
+        pl.className = "bolha-plano";
+        corpo.appendChild(pl);
+      }
+      pl.innerHTML = "";
+      for (const e of entries || []) {
+        const li = document.createElement("li");
+        li.className = `plano-${e.status || "pending"}`;
+        li.textContent = e.content || "";
+        pl.appendChild(li);
+      }
+      el.log.scrollTop = el.log.scrollHeight;
+    },
+    // O BLOQUEIO é um ponto de INTERVENÇÃO (FR-009c): destacado, com o convite. Não é
+    // aprovação — se ninguém sussurrar, ele segue sozinho.
+    intervencao(texto) {
+      const p = document.createElement("p");
+      p.className = "bolha-intervencao";
+      p.textContent = texto + " (se quiser, sussurre uma ideia agora)";
+      corpo.appendChild(p);
+      el.log.scrollTop = el.log.scrollHeight;
+    },
     // Uma tentativa nasce colapsada — clicar abre comando+retorno.
     passo(toolCallId, titulo) {
       const det = document.createElement("details");
@@ -1187,6 +1248,8 @@ function abrirTurno(personagem) {
     },
     // A narração cresce ao vivo, palavra a palavra, dentro do MESMO balão.
     narrar(pedaco) {
+      const rot = corpo.querySelector(".bolha-rotulo");
+      if (rot) rot.hidden = true;
       let n = corpo.querySelector(".bolha-narracao");
       if (!n) {
         n = document.createElement("p");
@@ -1774,6 +1837,28 @@ function ligarAoConector() {
       // mundo, linha neutra fora do balão.
       const texto = (u.content && u.content.text) || "";
       if (texto) appendLog(quem, "system", texto);
+      return;
+    }
+
+    if (u.sessionUpdate === "plan_update") {
+      const entries = (u.plan && u.plan.entries) || [];
+      turnoDe(quem).plano(entries);
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_thought_chunk" && u._meta && u._meta.camada === "bastidor") {
+      turnoDe(quem).bastidor(u._meta.box, u._meta.dados || {});
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_thought_chunk" && u._meta && u._meta.camada === "visivel") {
+      turnoDe(quem).rotulo((u.content && u.content.text) || "");
+      return;
+    }
+
+    if (u.sessionUpdate === "agent_message" && u._meta && u._meta.intervencao) {
+      const texto = (u.content && u.content[0] && u.content[0].text) || "";
+      if (texto) turnoDe(quem).intervencao(texto);
       return;
     }
 

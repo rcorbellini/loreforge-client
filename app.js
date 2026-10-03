@@ -1156,12 +1156,32 @@ function abrirTurno(personagem) {
       localEl.textContent = breadcrumb.join(" › ");
       localEl.hidden = false;
     },
-    // O "por quê" (decidiu/pensamento) — texto corrido, antes de qualquer passo.
+    // O "por quê" (decidiu/pensamento), antes de qualquer passo. O conector manda o racional
+    // em LINHAS (a postura; "— " um passo por linha; a fala entre aspas), e um <p> com
+    // textContent as juntava num parágrafo só (achado jogando, 03/10): cada linha vira o seu
+    // bloco — a postura, os passos em lista, a fala à parte.
     pensar(texto) {
-      const p = document.createElement("p");
-      p.className = "bolha-pensar";
-      p.textContent = texto;
-      corpo.appendChild(p);
+      const bloco = document.createElement("div");
+      bloco.className = "bolha-pensar";
+      let passos = null;
+      for (const linha of String(texto || "").split("\n").map((l) => l.trim()).filter(Boolean)) {
+        if (linha.startsWith("— ")) {
+          if (!passos) {
+            passos = document.createElement("ul");
+            passos.className = "pensar-passos";
+            bloco.appendChild(passos);
+          }
+          const li = document.createElement("li");
+          li.textContent = linha.slice(2);
+          passos.appendChild(li);
+          continue;
+        }
+        const p = document.createElement("p");
+        p.className = /^["“].*["”]$/.test(linha) ? "pensar-fala" : "pensar-postura";
+        p.textContent = linha;
+        bloco.appendChild(p);
+      }
+      corpo.appendChild(bloco);
       el.log.scrollTop = el.log.scrollHeight;
     },
     // HARNESS POR OBJETIVOS (spec 075, contrato 02) — a camada VISÍVEL: um rótulo
@@ -1178,42 +1198,64 @@ function abrirTurno(personagem) {
       r.hidden = !texto;
       el.log.scrollTop = el.log.scrollHeight;
     },
-    // O BASTIDOR — o que o resolvedor decidiu (tool, alvos, margem, subida). SEMPRE
-    // recolhido e só leitura: é depuração, não menu (Princípio V).
+    // O BASTIDOR — como cada ato do plano virou (ou não) uma ação. SEMPRE recolhido e só
+    // leitura: não é menu (Princípio V). Uma linha por ATO, com as frases que o conector manda
+    // em palavras (`dados.texto`: onde está o que ele citou, o que a capacidade faz, com o
+    // quê) — o "C4 · objetivo: … · args: {…}" de antes só se lia por quem conhece o código.
     bastidor(box, dados) {
       let b = corpo.querySelector("details.bastidor");
       if (!b) {
         b = document.createElement("details");
         b.className = "bastidor";
         const sum = document.createElement("summary");
-        sum.textContent = "bastidor";
+        sum.textContent = "como ele fez";
         b.appendChild(sum);
         const lista = document.createElement("ul");
         b.appendChild(lista);
         corpo.appendChild(b);
       }
-      const li = document.createElement("li");
-      const partes = Object.entries(dados || {})
-        .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
-      li.textContent = `${box || "?"} · ${partes.join(" · ")}`;
-      b.querySelector("ul").appendChild(li);
+      const d = dados || {};
+      const objetivo = String(d.objetivo || "").split(" — ")[0];
+      const frase = d.texto || "";
+      if (!frase) return;
+      let li = Array.from(b.querySelectorAll("li")).find((x) => x.dataset.objetivo === objetivo);
+      if (!li) {
+        li = document.createElement("li");
+        li.dataset.objetivo = objetivo;
+        const cab = document.createElement("span");
+        cab.className = "bastidor-ato";
+        cab.textContent = objetivo || "um ato";
+        li.appendChild(cab);
+        b.querySelector("ul").appendChild(li);
+      }
+      const parte = document.createElement("span");
+      parte.className = "bastidor-parte";
+      parte.textContent = frase;
+      li.appendChild(parte);
     },
-    // O CAMINHO do desejo — o plano inteiro, substituído a cada atualização.
+    // O QUE FICA PARA DEPOIS (spec 077): o que ele ainda pretende, além desta vez — o plano
+    // inteiro, substituído a cada atualização. Lista sem número: é intenção, não roteiro.
     plano(entries) {
       let pl = corpo.querySelector(".bolha-plano");
       if (!pl) {
-        pl = document.createElement("ol");
+        pl = document.createElement("div");
         pl.className = "bolha-plano";
+        const cab = document.createElement("span");
+        cab.className = "plano-titulo";
+        cab.textContent = "Depois:";
+        pl.appendChild(cab);
+        pl.appendChild(document.createElement("ul"));
         corpo.appendChild(pl);
       }
-      pl.innerHTML = "";
+      const ul = pl.querySelector("ul");
+      ul.innerHTML = "";
       for (const e of entries || []) {
         const li = document.createElement("li");
         li.className = `plano-${e.status || "pending"}`;
         li.textContent = e.content || "";
-        pl.appendChild(li);
+        ul.appendChild(li);
       }
+      pl.hidden = !(entries || []).length;
       el.log.scrollTop = el.log.scrollHeight;
     },
     // O BLOQUEIO é um ponto de INTERVENÇÃO (FR-009c): destacado, com o convite. Não é
@@ -1290,6 +1332,10 @@ function abrirTurno(personagem) {
       handle.encerrado = true;
       clearInterval(intervalo);
       entry.classList.remove("turno-aberto");
+      // o rótulo ("pensando no que fazer…") é do turno EM CURSO: fechado o turno sem narração
+      // (ele só falou), ele ficava congelado como se ainda pensasse (achado jogando, 03/10)
+      const rot = corpo.querySelector(".bolha-rotulo");
+      if (rot) rot.hidden = true;
       _turnos.delete(personagem);
       // Persistência SIMPLES pra sobreviver a reload — o balão rico (passos
       // colapsáveis, relógio) é só ao vivo; o histórico guarda a narração
@@ -1299,8 +1345,14 @@ function abrirTurno(personagem) {
       // reload; texto determinístico não precisa de marcador nenhum).
       const n = corpo.querySelector(".bolha-narracao");
       const s = session(personagem);
-      s.entries.push({ kind: "narration", text: (n && n.textContent) || "",
-                        paralelo: paraleloTexto, badge: null, ts: Date.now() });
+      // turno SEM narração (ele só pensou e falou) não vira um balão vazio no histórico
+      // recarregado (achado jogando, 03/10): a fala dele, se houve, fica como pensamento
+      const narrado = (n && n.textContent) || "";
+      const fala = corpo.querySelector(".pensar-fala");
+      if (narrado || paraleloTexto || fala) {
+        s.entries.push({ kind: "narration", text: narrado || (fala ? fala.textContent : ""),
+                          paralelo: paraleloTexto, badge: null, ts: Date.now() });
+      }
       if (s.entries.length > LOG_MAX_ENTRIES) {
         s.entries.splice(0, s.entries.length - LOG_MAX_ENTRIES);
       }

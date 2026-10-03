@@ -2044,6 +2044,7 @@ const elModal = {
   autoCheck: document.getElementById("auto-check"),
   autoLabel: document.getElementById("auto-label"),
   autoMotivo: document.getElementById("auto-motivo"),
+  pensarCheck: document.getElementById("pensar-check"),
   mesaFila: document.getElementById("mesa-fila"),
   select: document.getElementById("select-screen"),
   myChars: document.getElementById("my-characters"),
@@ -2525,6 +2526,8 @@ function pintarMesa() {
     : "Agir sozinho — bloqueado na mesa";
   elModal.autoMotivo.hidden = !!a.permitido || !a.motivo;
   elModal.autoMotivo.textContent = a.motivo ? `\u201c${a.motivo}\u201d` : "";
+  // a chave do pensar é só do dono, sem teto do anfitrião (spec 077)
+  if (elModal.pensarCheck) elModal.pensarCheck.checked = !!(meu.pensar && meu.pensar.ligado);
 
   const naFila = (_mesa.fila || []).find((e) => e.personagem === currentCharacter);
   elModal.mesaFila.textContent =
@@ -2619,6 +2622,18 @@ function init() {
                          { personagem: currentCharacter, ligado: querido });
     } catch (e) {
       elModal.autoCheck.checked = !querido;   // não fingir que pegou
+      appendLog(currentCharacter, "system", e.message);
+    }
+    atualizarMesa();
+  });
+
+  // A CHAVE DO PENSAR (spec 077): desligar com um pedido aberto o fecha — o conector cuida.
+  if (elModal.pensarCheck) elModal.pensarCheck.addEventListener("change", async () => {
+    const querido = elModal.pensarCheck.checked;
+    try {
+      await conectorPost("/pensar", { personagem: currentCharacter, ligado: querido });
+    } catch (e) {
+      elModal.pensarCheck.checked = !querido;   // não fingir que pegou
       appendLog(currentCharacter, "system", e.message);
     }
     atualizarMesa();

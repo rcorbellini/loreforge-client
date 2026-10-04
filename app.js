@@ -1172,12 +1172,22 @@ function abrirTurno(personagem) {
             bloco.appendChild(passos);
           }
           const li = document.createElement("li");
-          li.textContent = linha.slice(2);
+          // "— a ação → o que ele espera" (04/10/2026): o porquê de cada passo vem à parte,
+          // mais apagado, para a lista seguir legível como lista de ações
+          const [acao, ...espera] = linha.slice(2).split(" → ");
+          li.textContent = acao;
+          if (espera.length) {
+            const e = document.createElement("span");
+            e.className = "pensar-espera";
+            e.textContent = "→ " + espera.join(" → ");
+            li.appendChild(e);
+          }
           passos.appendChild(li);
           continue;
         }
         const p = document.createElement("p");
-        p.className = /^["“].*["”]$/.test(linha) ? "pensar-fala" : "pensar-postura";
+        p.className = /^["“].*["”]$/.test(linha) ? "pensar-fala"
+          : /^Dá por feito quando /.test(linha) ? "pensar-pronto" : "pensar-postura";
         p.textContent = linha;
         bloco.appendChild(p);
       }

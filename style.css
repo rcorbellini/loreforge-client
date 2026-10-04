@@ -460,6 +460,10 @@ body {
 .log .bolha-pensar .pensar-passos { margin: 0.1rem 0 0.35rem; padding-left: 1.2em; list-style: "— "; }
 .log .bolha-pensar .pensar-passos li { margin: 0.1rem 0; }
 .log .bolha-pensar .pensar-fala { font-style: normal; color: var(--ink); }
+/* o porquê de cada passo e o fato que dá o pedido por feito (04/10/2026): ficam à parte,
+   mais apagados, para não competir com a ação e a fala */
+.log .bolha-pensar .pensar-espera { margin-left: 0.4em; opacity: 0.75; font-size: 0.92em; }
+.log .bolha-pensar .pensar-pronto { opacity: 0.85; }
 .log .bolha-narracao { color: var(--ink); margin: 0.3rem 0 0; }
 /* "ENQUANTO ISSO" (spec 074, 2026-09-27): o que aconteceu ao redor, à
    margem da ação — a Mente ainda escreve isso dentro da MESMA prosa (não
